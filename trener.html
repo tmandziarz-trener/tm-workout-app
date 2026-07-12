@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TM Workout — Panel Trenera</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="logo-icon">TM</div>
+  <div class="logo-text">
+    <div class="top">TOMASZ MANDZIARZ</div>
+    <div class="bottom">WORKOUT — PANEL TRENERA</div>
+  </div>
+</header>
+
+<main>
+
+  <div id="screen-lock" class="card">
+    <h2>Panel trenera</h2>
+    <div class="sub">Ten widok jest chroniony hasłem — nie jest to publiczna część aplikacji.</div>
+    <div class="field"><label>Hasło</label><input type="password" id="pwd"></div>
+    <button class="btn" onclick="checkPassword()">Wejdź</button>
+    <div class="hint" id="lockHint"></div>
+  </div>
+
+  <div id="screen-dash" style="display:none;">
+    <div class="card">
+      <h2>Wybierz klienta</h2>
+      <select id="clientSelect" onchange="loadClient()"><option value="">— wybierz —</option></select>
+    </div>
+
+    <div id="dashContent" style="display:none;">
+      <div class="card">
+        <div class="stat-row" id="statRow"></div>
+        <canvas id="weightChart"></canvas>
+      </div>
+      <div class="card"><h2>Obwody ciała</h2><canvas id="circChart"></canvas></div>
+      <div class="card"><h2>Objętość treningowa</h2><canvas id="volChart"></canvas></div>
+      <div class="card">
+        <h2>Ćwiczenia zgłoszone do przeglądu</h2>
+        <div id="exList"></div>
+      </div>
+      <div class="card">
+        <h2>Historia pomiarów</h2>
+        <table id="historyTable"></table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="config.js"></script>
+<script>
+let weightChart, circChart, volChart;
+
+async function checkPassword(){
+  const pwd = document.getElementById('pwd').value;
+  const hint = document.getElementById('lockHint');
+  hint.textContent = 'Sprawdzam...';
+  try {
+    const res = await fetch('/api/check-trainer-password', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pwd })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sessionStorage.setItem('tmw_trener_ok', '1');
+      document.getElementById('screen-lock').style.display = 'none';
+      document.getElementById('screen-dash').style.display = 'block';
+      loadNames();
+    } else {
+      hint.textContent = 'Błędne hasło.';
+    }
+  } catch (err) {
+    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
+  }
+}
+
+if (sessionStorage.getItem('tmw_trener_ok') === '1') {
+  document.getElementById('screen-lock').style.display = 'none';
+  document.getElementById('screen-dash').style.display = 'block';
+  loadNames();
+}
+
+async function loadNames(){
+  const { data, error } = await sb.from('clients').select('id,name').order('name');
+  if (error) { alert('Błąd wczytywania klientów: ' + error.message); return; }
+  const sel = document.getElementById('clientSelect');
+  data.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadClient(){
+  const id = document.getElementById('clientSelect').value;
+  if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
+
+  const [{ data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
+    sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
+    sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
+  ]);
+  if (e1 || e2) { alert('Błąd wczytywania danych: ' + ((e1||e2).message)); return; }
+  renderDash(meas || [], sets || []);
+}
+
+function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
+
+function volumeOf(s){
+  const sets_ = num(s.sets), reps = num(s.reps), w = num(s.weight_kg);
+  if (sets_ === null || reps === null || w === null) return 0;
+  return sets_ * reps * w;
+}
+
+function renderDash(meas, sets){
+  document.getElementById('dashContent').style.display = 'block';
+
+  if (meas.length) {
+    const last = meas[meas.length-1];
+    const prev = meas.length > 1 ? meas[meas.length-2] : last;
+    document.getElementById('statRow').innerHTML = `
+      ${stat('Masa ciała', (last.weight_kg||'-')+' kg', num(last.weight_kg) - num(prev.weight_kg))}
+      ${stat('Talia', (last.waist_cm||'-')+' cm', num(last.waist_cm) - num(prev.waist_cm))}
+    `;
+  } else {
+    document.getElementById('statRow').innerHTML = '<div class="hint">Brak jeszcze pomiarów tego klienta.</div>';
+  }
+
+  const labels = meas.map(m => m.measured_at);
+  if (weightChart) weightChart.destroy();
+  weightChart = new Chart(document.getElementById('weightChart'), {
+    type:'line',
+    data:{labels, datasets:[{label:'Masa ciała (kg)', data:meas.map(m=>num(m.weight_kg)), borderColor:'#c5a689', backgroundColor:'#c5a68933', fill:true, tension:.3}]},
+    options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
+  });
+
+  if (circChart) circChart.destroy();
+  circChart = new Chart(document.getElementById('circChart'), {
+    type:'line',
+    data:{labels, datasets:[
+      {label:'Talia', data:meas.map(m=>num(m.waist_cm)), borderColor:'#1a1a1a', tension:.3},
+      {label:'Biodro', data:meas.map(m=>num(m.hip_cm)), borderColor:'#c5a689', tension:.3},
+      {label:'Klatka', data:meas.map(m=>num(m.chest_cm)), borderColor:'#b5573f', tension:.3},
+    ]},
+    options:{scales:{y:{beginAtZero:false}}}
+  });
+
+  const volByDate = {};
+  sets.forEach(s => {
+    const d = s.logged_at;
+    volByDate[d] = (volByDate[d]||0) + volumeOf(s);
+  });
+  const volLabels = Object.keys(volByDate).sort();
+  if (volChart) volChart.destroy();
+  volChart = new Chart(document.getElementById('volChart'), {
+    type:'bar',
+    data:{labels: volLabels, datasets:[{label:'Objętość (kg)', data: volLabels.map(l=>volByDate[l]), backgroundColor:'#c5a689'}]},
+    options:{plugins:{legend:{display:false}}}
+  });
+
+  const exList = document.getElementById('exList');
+  if (sets.length === 0) {
+    exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
+  } else {
+    exList.innerHTML = sets.slice().reverse().map(s => `
+      <div class="exercise-row">
+        <strong>${s.logged_at} — ${escapeHtml(s.exercise_name||'')}</strong><br>
+        ${s.sets||'-'}x${s.reps||'-'} @ ${s.weight_kg||'-'}kg
+        (objętość: ${volumeOf(s)} kg)
+        ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
+        ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
+      </div>
+    `).join('');
+  }
+
+  const tbl = document.getElementById('historyTable');
+  tbl.innerHTML = `
+    <tr><th>Data</th><th>Waga</th><th>Talia</th><th>Biodro</th></tr>
+    ${meas.slice().reverse().map(m => `
+      <tr><td>${m.measured_at||''}</td><td>${m.weight_kg||''}</td><td>${m.waist_cm||''}</td><td>${m.hip_cm||''}</td></tr>
+    `).join('')}
+  `;
+}
+
+function stat(label, value, delta){
+  const hasDelta = delta !== null && !isNaN(delta);
+  const isGood = hasDelta && delta <= 0;
+  const arrow = hasDelta ? (delta>=0?'▲':'▼') : '';
+  return `<div class="stat">
+    <div class="lbl">${label}</div>
+    <div class="num">${value}</div>
+    ${hasDelta ? '<div style="font-size:12px;font-weight:700;color:'+(isGood?'#5a8a5a':'#b5573f')+'">'+arrow+' '+Math.abs(delta).toFixed(1)+' vs poprzedni</div>' : ''}
+  </div>`;
+}
+
+function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
