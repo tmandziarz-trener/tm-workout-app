@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TM Workout — Raport klienta</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+<header>
+  <img src="logo.png" alt="Tomasz Mandziarz Workout" class="logo-img">
+  <div class="logo-text"><div class="bottom">RAPORT KLIENTA</div></div>
+</header>
+
+<main>
+
+  <div id="screen-lock" class="card">
+    <h2>Dostęp trenera</h2>
+    <div class="sub">Ta strona jest częścią panelu trenera — zaloguj się hasłem.</div>
+    <div class="field"><label>Hasło</label><input type="password" id="pwd"></div>
+    <button class="btn" onclick="checkPassword()">Wejdź</button>
+    <div class="hint" id="lockHint"></div>
+  </div>
+
+  <div id="reportRoot" style="display:none;">
+
+    <div class="report-toolbar no-print">
+      <button class="btn" id="btnDownloadPdf" onclick="downloadPdf()">⬇ Pobierz jako PDF</button>
+      <button class="btn secondary" onclick="window.close()">Zamknij</button>
+    </div>
+
+    <div id="reportContent">
+
+      <div class="report-header">
+        <img src="logo.png" alt="Tomasz Mandziarz Workout" class="logo-img">
+        <h1 id="reportClientName">Raport postępów</h1>
+        <p class="sub" id="reportMeta"></p>
+      </div>
+
+      <div class="report-section">
+        <h2>Masa ciała</h2>
+        <div class="stat-row" id="statRow"></div>
+        <canvas id="weightChart" height="140"></canvas>
+        <div class="comment-box no-print">
+          <label>Twój komentarz do tej sekcji</label>
+          <textarea id="comment-waga" placeholder="np. Masa ciała spada w dobrym tempie, trzymaj tak dalej..."></textarea>
+        </div>
+        <div class="comment-display" id="display-waga"></div>
+      </div>
+
+      <div class="report-section">
+        <h2>Obwody ciała</h2>
+        <canvas id="circChart" height="140"></canvas>
+        <div class="comment-box no-print">
+          <label>Twój komentarz do tej sekcji</label>
+          <textarea id="comment-obwody" placeholder="np. Obwód talii systematycznie się zmniejsza, widać efekty diety..."></textarea>
+        </div>
+        <div class="comment-display" id="display-obwody"></div>
+      </div>
+
+      <div class="report-section">
+        <h2>Objętość treningowa</h2>
+        <canvas id="volChart" height="140"></canvas>
+        <table id="exVolTable" style="margin-top:14px;"></table>
+        <div class="comment-box no-print">
+          <label>Twój komentarz do tej sekcji</label>
+          <textarea id="comment-cwiczenia" placeholder="np. Świetna progresja na przysiadzie, objętość rośnie z tygodnia na tydzień..."></textarea>
+        </div>
+        <div class="comment-display" id="display-cwiczenia"></div>
+      </div>
+
+      <div class="report-section">
+        <h2>Ćwiczenia zgłoszone do przeglądu</h2>
+        <div id="exList"></div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<script src="config.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const clientId = params.get('client');
+let weightChart, circChart, volChart;
+
+if (!clientId) {
+  document.body.innerHTML = '<main><div class="card"><h2>Brak wybranego klienta</h2><div class="sub">Otwórz raport z panelu trenera, wybierając klienta z listy.</div></div></main>';
+} else {
+  if (sessionStorage.getItem('tmw_trener_ok') === '1') {
+    unlock();
+  }
+}
+
+async function checkPassword(){
+  const pwd = document.getElementById('pwd').value;
+  const hint = document.getElementById('lockHint');
+  hint.textContent = 'Sprawdzam...';
+  try {
+    const res = await fetch('/api/check-trainer-password', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pwd })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sessionStorage.setItem('tmw_trener_ok', '1');
+      unlock();
+    } else {
+      hint.textContent = 'Błędne hasło.';
+    }
+  } catch (err) {
+    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
+  }
+}
+
+function unlock(){
+  document.getElementById('screen-lock').style.display = 'none';
+  document.getElementById('reportRoot').style.display = 'block';
+  loadReport();
+  restoreComments();
+}
+
+function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
+
+function volumeOf(s){
+  const sets_ = num(s.sets), reps = num(s.reps), w = num(s.weight_kg);
+  if (sets_ === null || reps === null || w === null) return 0;
+  return sets_ * reps * w;
+}
+
+function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadReport(){
+  const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
+    sb.from('clients').select('*').eq('id', clientId).single(),
+    sb.from('measurements').select('*').eq('client_id', clientId).order('measured_at'),
+    sb.from('exercise_logs').select('*').eq('client_id', clientId).order('logged_at'),
+  ]);
+  if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
+
+  document.getElementById('reportClientName').textContent = 'Raport postępów — ' + client.name;
+  const today = new Date().toLocaleDateString('pl-PL');
+  document.getElementById('reportMeta').textContent = 'Wygenerowano: ' + today + (meas.length ? ' · dane od ' + meas[0].measured_at : '');
+
+  renderStats(meas);
+  renderWeightChart(meas);
+  renderCircChart(meas);
+  renderVolChart(sets);
+  renderExVolTable(sets);
+  renderExList(sets);
+}
+
+function renderStats(meas){
+  const el = document.getElementById('statRow');
+  if (!meas.length) { el.innerHTML = '<div class="hint">Brak jeszcze pomiarów tego klienta.</div>'; return; }
+  const first = meas[0];
+  const last = meas[meas.length-1];
+  el.innerHTML = `
+    ${stat('Masa ciała — start', (first.weight_kg||'-')+' kg', null)}
+    ${stat('Masa ciała — teraz', (last.weight_kg||'-')+' kg', num(last.weight_kg) - num(first.weight_kg))}
+  `;
+}
+
+function stat(label, value, delta){
+  const hasDelta = delta !== null && delta !== undefined && !isNaN(delta);
+  const isGood = hasDelta && delta <= 0;
+  const arrow = hasDelta ? (delta>=0?'▲':'▼') : '';
+  return `<div class="stat">
+    <div class="lbl">${label}</div>
+    <div class="num">${value}</div>
+    ${hasDelta ? '<div style="font-size:12px;font-weight:700;color:'+(isGood?'#5a8a5a':'#b5573f')+'">'+arrow+' '+Math.abs(delta).toFixed(1)+' kg od początku</div>' : ''}
+  </div>`;
+}
+
+function renderWeightChart(meas){
+  const labels = meas.map(m => m.measured_at);
+  if (weightChart) weightChart.destroy();
+  weightChart = new Chart(document.getElementById('weightChart'), {
+    type:'line',
+    data:{labels, datasets:[{label:'Masa ciała (kg)', data:meas.map(m=>num(m.weight_kg)), borderColor:'#c5a689', backgroundColor:'#c5a68933', fill:true, tension:.3}]},
+    options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}, animation:false}
+  });
+}
+
+function renderCircChart(meas){
+  const labels = meas.map(m => m.measured_at);
+  if (circChart) circChart.destroy();
+  circChart = new Chart(document.getElementById('circChart'), {
+    type:'line',
+    data:{labels, datasets:[
+      {label:'Talia', data:meas.map(m=>num(m.waist_cm)), borderColor:'#1a1a1a', tension:.3},
+      {label:'Biodro', data:meas.map(m=>num(m.hip_cm)), borderColor:'#c5a689', tension:.3},
+      {label:'Klatka', data:meas.map(m=>num(m.chest_cm)), borderColor:'#b5573f', tension:.3},
+    ]},
+    options:{scales:{y:{beginAtZero:false}}, animation:false}
+  });
+}
+
+function renderVolChart(sets){
+  const volByDate = {};
+  sets.forEach(s => { volByDate[s.logged_at] = (volByDate[s.logged_at]||0) + volumeOf(s); });
+  const labels = Object.keys(volByDate).sort();
+  if (volChart) volChart.destroy();
+  volChart = new Chart(document.getElementById('volChart'), {
+    type:'bar',
+    data:{labels, datasets:[{label:'Objętość (kg)', data: labels.map(l=>volByDate[l]), backgroundColor:'#c5a689'}]},
+    options:{plugins:{legend:{display:false}}, animation:false}
+  });
+}
+
+function renderExVolTable(sets){
+  const byExercise = {};
+  sets.forEach(s => {
+    const key = s.exercise_name || '(bez nazwy)';
+    if (!byExercise[key]) byExercise[key] = { total: 0, count: 0 };
+    byExercise[key].total += volumeOf(s);
+    byExercise[key].count += 1;
+  });
+  const rows = Object.entries(byExercise).sort((a,b) => b[1].total - a[1].total);
+  const tbl = document.getElementById('exVolTable');
+  if (rows.length === 0) {
+    tbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
+  } else {
+    tbl.innerHTML = `
+      <tr><th>Ćwiczenie</th><th>Suma objętości</th><th>Liczba wpisów</th></tr>
+      ${rows.map(([name, v]) => `<tr><td>${escapeHtml(name)}</td><td>${v.total} kg</td><td>${v.count}</td></tr>`).join('')}
+    `;
+  }
+}
+
+function renderExList(sets){
+  const exList = document.getElementById('exList');
+  if (sets.length === 0) {
+    exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
+    return;
+  }
+  exList.innerHTML = sets.slice().reverse().slice(0, 20).map(s => `
+    <div class="exercise-row">
+      <strong>${s.logged_at} — ${escapeHtml(s.exercise_name||'')}</strong><br>
+      ${s.sets||'-'}x${s.reps||'-'} @ ${s.weight_kg||'-'}kg (objętość: ${volumeOf(s)} kg)
+      ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
+      ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
+    </div>
+  `).join('');
+}
+
+// ---------- Komentarze: zapamiętywane lokalnie, żeby się nie zgubiły ----------
+const COMMENT_KEYS = ['waga','obwody','cwiczenia'];
+
+function commentStorageKey(section){ return 'tmw_comment_' + clientId + '_' + section; }
+
+COMMENT_KEYS.forEach(section => {
+  const el = document.getElementById('comment-' + section);
+  if (el) el.addEventListener('input', () => {
+    localStorage.setItem(commentStorageKey(section), el.value);
+  });
+});
+
+function restoreComments(){
+  COMMENT_KEYS.forEach(section => {
+    const saved = localStorage.getItem(commentStorageKey(section));
+    const el = document.getElementById('comment-' + section);
+    if (saved && el) el.value = saved;
+  });
+}
+
+// ---------- Pobierz jako PDF ----------
+function downloadPdf(){
+  const toolbar = document.querySelector('.report-toolbar');
+  const btn = document.getElementById('btnDownloadPdf');
+  btn.disabled = true;
+  btn.textContent = 'Generuję PDF...';
+
+  COMMENT_KEYS.forEach(section => {
+    const ta = document.getElementById('comment-' + section);
+    const disp = document.getElementById('display-' + section);
+    if (ta && disp) {
+      disp.textContent = ta.value.trim() || '(brak komentarza)';
+      disp.style.display = 'block';
+      ta.closest('.comment-box').style.display = 'none';
+    }
+  });
+  toolbar.style.display = 'none';
+
+  const clientName = document.getElementById('reportClientName').textContent.replace('Raport postępów — ', '').replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g,'');
+  const filename = 'Raport_' + clientName + '_' + todayForFile() + '.pdf';
+
+  const opt = {
+    margin: 8,
+    filename: filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'] }
+  };
+
+  html2pdf().set(opt).from(document.getElementById('reportContent')).save().then(() => {
+    restoreAfterPdf(toolbar, btn);
+  }).catch(err => {
+    alert('Błąd generowania PDF: ' + err.message);
+    restoreAfterPdf(toolbar, btn);
+  });
+}
+
+function restoreAfterPdf(toolbar, btn){
+  COMMENT_KEYS.forEach(section => {
+    const ta = document.getElementById('comment-' + section);
+    const disp = document.getElementById('display-' + section);
+    if (ta && disp) {
+      disp.style.display = 'none';
+      ta.closest('.comment-box').style.display = 'block';
+    }
+  });
+  toolbar.style.display = 'flex';
+  btn.disabled = false;
+  btn.textContent = '⬇ Pobierz jako PDF';
+}
+
+function todayForFile(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+</script>
+</body>
+</html>
