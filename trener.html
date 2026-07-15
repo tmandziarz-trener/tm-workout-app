@@ -11,11 +11,8 @@
 <body>
 
 <header>
-  <div class="logo-icon">TM</div>
-  <div class="logo-text">
-    <div class="top">TOMASZ MANDZIARZ</div>
-    <div class="bottom">WORKOUT — PANEL TRENERA</div>
-  </div>
+  <img src="logo.png" alt="Tomasz Mandziarz Workout" class="logo-img">
+  <div class="logo-text"><div class="bottom">PANEL TRENERA</div></div>
 </header>
 
 <main>
@@ -35,6 +32,9 @@
     </div>
 
     <div id="dashContent" style="display:none;">
+      <div class="card center">
+        <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
+      </div>
       <div class="card">
         <div class="stat-row" id="statRow"></div>
         <canvas id="weightChart"></canvas>
@@ -102,6 +102,12 @@ async function loadNames(){
     opt.value = c.id; opt.textContent = c.name;
     sel.appendChild(opt);
   });
+}
+
+function openReport(){
+  const id = document.getElementById('clientSelect').value;
+  if (!id) { alert('Wybierz najpierw klienta.'); return; }
+  window.open('raport.html?client=' + encodeURIComponent(id), '_blank');
 }
 
 async function loadClient(){
