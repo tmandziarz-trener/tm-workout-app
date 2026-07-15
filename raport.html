@@ -274,38 +274,60 @@ function restoreComments(){
 function downloadPdf(){
   const toolbar = document.querySelector('.report-toolbar');
   const btn = document.getElementById('btnDownloadPdf');
-  btn.disabled = true;
-  btn.textContent = 'Generuję PDF...';
 
-  COMMENT_KEYS.forEach(section => {
-    const ta = document.getElementById('comment-' + section);
-    const disp = document.getElementById('display-' + section);
-    if (ta && disp) {
-      disp.textContent = ta.value.trim() || '(brak komentarza)';
-      disp.style.display = 'block';
-      ta.closest('.comment-box').style.display = 'none';
-    }
-  });
-  toolbar.style.display = 'none';
-
-  const clientName = document.getElementById('reportClientName').textContent.replace('Raport postępów — ', '').replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g,'');
-  const filename = 'Raport_' + clientName + '_' + todayForFile() + '.pdf';
-
-  const opt = {
-    margin: 8,
-    filename: filename,
-    image: { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css', 'legacy'] }
-  };
-
-  html2pdf().set(opt).from(document.getElementById('reportContent')).save().then(() => {
+  // Bezpiecznik: cokolwiek pójdzie nie tak, przycisk i tak wróci do normalnego stanu.
+  const safetyTimeout = setTimeout(() => {
+    console.warn('PDF: przekroczono czas oczekiwania, przywracam przycisk.');
     restoreAfterPdf(toolbar, btn);
-  }).catch(err => {
+    alert('Generowanie PDF trwa zbyt długo lub coś poszło nie tak. Sprawdź konsolę (F12) po szczegóły.');
+  }, 30000);
+
+  try {
+    if (typeof html2pdf === 'undefined') {
+      throw new Error('Biblioteka html2pdf nie wczytała się (sprawdź połączenie z internetem / blokady skryptów).');
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Generuję PDF...';
+
+    COMMENT_KEYS.forEach(section => {
+      const ta = document.getElementById('comment-' + section);
+      const disp = document.getElementById('display-' + section);
+      if (ta && disp) {
+        disp.textContent = ta.value.trim() || '(brak komentarza)';
+        disp.style.display = 'block';
+        ta.closest('.comment-box').style.display = 'none';
+      }
+    });
+    toolbar.style.display = 'none';
+
+    const clientName = document.getElementById('reportClientName').textContent.replace('Raport postępów — ', '').replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g,'');
+    const filename = 'Raport_' + clientName + '_' + todayForFile() + '.pdf';
+
+    const opt = {
+      margin: 8,
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 1.5, useCORS: true, logging: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] }
+    };
+
+    html2pdf().set(opt).from(document.getElementById('reportContent')).save().then(() => {
+      clearTimeout(safetyTimeout);
+      restoreAfterPdf(toolbar, btn);
+    }).catch(err => {
+      clearTimeout(safetyTimeout);
+      console.error('html2pdf error:', err);
+      alert('Błąd generowania PDF: ' + err.message);
+      restoreAfterPdf(toolbar, btn);
+    });
+  } catch (err) {
+    clearTimeout(safetyTimeout);
+    console.error('downloadPdf error:', err);
     alert('Błąd generowania PDF: ' + err.message);
     restoreAfterPdf(toolbar, btn);
-  });
+  }
 }
 
 function restoreAfterPdf(toolbar, btn){
