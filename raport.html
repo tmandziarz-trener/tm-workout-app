@@ -88,6 +88,7 @@
 const params = new URLSearchParams(location.search);
 const clientId = params.get('client');
 let weightChart, circChart, volChart;
+const COMMENT_KEYS = ['waga','obwody','cwiczenia'];
 
 if (!clientId) {
   document.body.innerHTML = '<main><div class="card"><h2>Brak wybranego klienta</h2><div class="sub">Otwórz raport z panelu trenera, wybierając klienta z listy.</div></div></main>';
@@ -251,8 +252,6 @@ function renderExList(sets){
 }
 
 // ---------- Komentarze: zapamiętywane lokalnie, żeby się nie zgubiły ----------
-const COMMENT_KEYS = ['waga','obwody','cwiczenia'];
-
 function commentStorageKey(section){ return 'tmw_comment_' + clientId + '_' + section; }
 
 COMMENT_KEYS.forEach(section => {
