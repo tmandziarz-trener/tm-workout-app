@@ -40,7 +40,12 @@
         <canvas id="weightChart"></canvas>
       </div>
       <div class="card"><h2>Obwody ciała</h2><canvas id="circChart"></canvas></div>
-      <div class="card"><h2>Objętość treningowa</h2><canvas id="volChart"></canvas></div>
+      <div class="card"><h2>Objętość treningowa — suma z treningu</h2><canvas id="volChart"></canvas></div>
+      <div class="card">
+        <h2>Objętość — suma per ćwiczenie</h2>
+        <div class="sub">Łączna objętość każdego ćwiczenia z całej historii tego klienta.</div>
+        <table id="exVolTable"></table>
+      </div>
       <div class="card">
         <h2>Ćwiczenia zgłoszone do przeglądu</h2>
         <div id="exList"></div>
@@ -164,6 +169,27 @@ function renderDash(meas, sets){
     data:{labels: volLabels, datasets:[{label:'Objętość (kg)', data: volLabels.map(l=>volByDate[l]), backgroundColor:'#c5a689'}]},
     options:{plugins:{legend:{display:false}}}
   });
+
+  const byExercise = {};
+  sets.forEach(s => {
+    const key = s.exercise_name || '(bez nazwy)';
+    if (!byExercise[key]) byExercise[key] = { total: 0, last: s.logged_at, count: 0 };
+    byExercise[key].total += volumeOf(s);
+    byExercise[key].count += 1;
+    if (s.logged_at > byExercise[key].last) byExercise[key].last = s.logged_at;
+  });
+  const exVolRows = Object.entries(byExercise).sort((a,b) => b[1].total - a[1].total);
+  const exVolTbl = document.getElementById('exVolTable');
+  if (exVolRows.length === 0) {
+    exVolTbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
+  } else {
+    exVolTbl.innerHTML = `
+      <tr><th>Ćwiczenie</th><th>Suma objętości</th><th>Liczba wpisów</th><th>Ostatnio</th></tr>
+      ${exVolRows.map(([name, v]) => `
+        <tr><td>${escapeHtml(name)}</td><td>${v.total} kg</td><td>${v.count}</td><td>${v.last}</td></tr>
+      `).join('')}
+    `;
+  }
 
   const exList = document.getElementById('exList');
   if (sets.length === 0) {
