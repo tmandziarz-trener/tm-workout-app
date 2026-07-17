@@ -22,10 +22,10 @@
     <div class="sub">Zanim zaczniemy, powiedz mi kim jesteś.</div>
 
     <div class="field">
-      <label>Jestem już klientem — wybierz swoje imię i nazwisko</label>
-      <select id="who-select"><option value="">— wybierz —</option></select>
+      <label>Jestem już klientem — podaj telefon albo e-mail z rejestracji</label>
+      <input type="text" id="lookup-value" placeholder="np. 600123456 albo twój@email.pl">
     </div>
-    <button class="btn" onclick="pickExisting()">Kontynuuj</button>
+    <button class="btn" onclick="findExisting()" id="btn-find">Znajdź mnie</button>
 
     <div class="spacer"></div>
     <div class="center"><span class="hint">albo</span></div>
@@ -41,7 +41,8 @@
       </div>
       <div class="field"><label>Telefon</label><input type="text" id="nc_phone"></div>
       <div class="field"><label>E-mail</label><input type="email" id="nc_email"></div>
-      <button class="btn" onclick="registerNew()">Zarejestruj mnie</button>
+      <div class="hint">Podaj przynajmniej telefon albo e-mail — będziesz się nim logować przy następnej wizycie.</div>
+      <button class="btn" style="margin-top:10px;" onclick="registerNew()">Zarejestruj mnie</button>
     </div>
   </div>
 
@@ -76,6 +77,7 @@
       </div>
       <div class="field"><label>Prawe udo (cm)</label><input type="number" step="0.1" id="m_thigh"></div>
       <button class="btn" id="btn-save-meas" onclick="saveMeasurement()">Zapisz pomiar</button>
+      <div class="hint" id="lastMeasSent" style="margin-top:10px;"></div>
     </div>
 
     <!-- ----- LOG TRENINGU ----- -->
@@ -91,6 +93,7 @@
       </div>
       <button class="btn" id="btn-save-workout" onclick="saveWorkout()">Zapisz cały trening</button>
       <div class="progress" id="uploadProgress"></div>
+      <div class="hint" id="lastWorkoutSent" style="margin-top:10px;"></div>
     </div>
 
   </div>
@@ -124,29 +127,26 @@ const savedId = localStorage.getItem('tmw_client_id');
 const savedName = localStorage.getItem('tmw_client_name');
 if (savedId && savedName) {
   enterMain(savedId, savedName);
-} else {
-  loadNames();
 }
 
-async function loadNames(){
-  const { data, error } = await sb.from('clients').select('id,name').order('name');
-  if (error) { showToast('Błąd wczytywania listy klientów: ' + error.message); return; }
-  const sel = document.getElementById('who-select');
-  data.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id; opt.textContent = c.name;
-    sel.appendChild(opt);
-  });
-}
-
-function pickExisting(){
-  const sel = document.getElementById('who-select');
-  const id = sel.value;
-  const name = sel.options[sel.selectedIndex].textContent;
-  if (!id) { showToast('Wybierz swoje imię z listy.'); return; }
-  localStorage.setItem('tmw_client_id', id);
-  localStorage.setItem('tmw_client_name', name);
-  enterMain(id, name);
+// Uwaga: nie wczytujemy tu listy wszystkich klientów — każdy klient wyszukuje
+// tylko własne konto po telefonie/e-mailu, żeby nie widzieć danych innych osób.
+async function findExisting(){
+  const val = document.getElementById('lookup-value').value.trim();
+  if (!val) { showToast('Wpisz swój numer telefonu albo e-mail, który podałeś przy rejestracji.'); return; }
+  const btn = document.getElementById('btn-find');
+  btn.disabled = true;
+  const { data, error } = await sb.from('clients').select('id,name').or(`phone.eq.${val},email.eq.${val}`).limit(1);
+  btn.disabled = false;
+  if (error) { showToast('Błąd wyszukiwania: ' + error.message); return; }
+  if (!data || data.length === 0) {
+    showToast('Nie znaleziono konta z tymi danymi. Sprawdź, czy wpisujesz to samo co przy rejestracji, albo zarejestruj się jako nowy klient.');
+    return;
+  }
+  const c = data[0];
+  localStorage.setItem('tmw_client_id', c.id);
+  localStorage.setItem('tmw_client_name', c.name);
+  enterMain(c.id, c.name);
 }
 
 function toggleNew(){
@@ -157,13 +157,16 @@ function toggleNew(){
 async function registerNew(){
   const name = document.getElementById('nc_name').value.trim();
   const height = document.getElementById('nc_height').value;
+  const phone = document.getElementById('nc_phone').value.trim();
+  const email = document.getElementById('nc_email').value.trim();
   if (!name || !height) { showToast('Podaj przynajmniej imię i wzrost.'); return; }
+  if (!phone && !email) { showToast('Podaj przynajmniej telefon albo e-mail — będzie Ci trzeba do logowania.'); return; }
   const payload = {
     name: name,
     age: document.getElementById('nc_age').value || null,
     height_cm: height || null,
-    phone: document.getElementById('nc_phone').value || null,
-    email: document.getElementById('nc_email').value || null,
+    phone: phone || null,
+    email: email || null,
   };
   const { data, error } = await sb.from('clients').insert(payload).select('id,name').single();
   if (error) { showToast('Błąd rejestracji: ' + error.message); return; }
@@ -177,6 +180,18 @@ function enterMain(id, name){
   document.getElementById('screen-main').style.display = 'block';
   document.getElementById('me-name').textContent = name;
   if (document.querySelectorAll('.exercise-row').length === 0) { addExerciseRow(); addExerciseRow(); }
+
+  const lastMeas = localStorage.getItem('tmw_last_meas_' + id);
+  if (lastMeas) document.getElementById('lastMeasSent').textContent = '✅ Ostatnio wysłano: ' + lastMeas;
+  const lastWorkout = localStorage.getItem('tmw_last_workout_' + id);
+  if (lastWorkout) document.getElementById('lastWorkoutSent').textContent = '✅ Ostatnio wysłano: ' + lastWorkout;
+}
+
+function markSent(kind, clientId){
+  const now = new Date().toLocaleString('pl-PL');
+  localStorage.setItem('tmw_last_' + kind + '_' + clientId, now);
+  const elId = kind === 'meas' ? 'lastMeasSent' : 'lastWorkoutSent';
+  document.getElementById(elId).textContent = '✅ Ostatnio wysłano: ' + now;
 }
 
 function logout(){
@@ -213,6 +228,7 @@ async function saveMeasurement(){
   btn.disabled = false;
   if (error) { showToast('Błąd zapisu: ' + error.message); return; }
   showToast('Pomiar zapisany. Dzięki!');
+  markSent('meas', clientId);
 }
 
 // ---------- LOG TRENINGU ----------
@@ -393,6 +409,7 @@ async function saveWorkout(){
     if (error) throw error;
 
     showToast('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!');
+    markSent('workout', clientId);
     document.getElementById('exerciseRows').innerHTML = '';
     addExerciseRow();
   } catch (err) {
