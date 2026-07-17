@@ -32,6 +32,18 @@
     </div>
 
     <div id="dashContent" style="display:none;">
+      <div class="card">
+        <div class="profile-row">
+          <div class="avatar-wrap">
+            <img id="clientAvatarImg" class="avatar-img" src="" alt="" style="display:none;">
+            <div id="clientAvatarPlaceholder" class="avatar-placeholder">🙂</div>
+          </div>
+          <div class="profile-info">
+            <strong id="clientNameDisplay" style="font-size:16px;"></strong>
+            <div class="profile-stats" id="clientProfileStats"></div>
+          </div>
+        </div>
+      </div>
       <div class="card center">
         <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
       </div>
@@ -114,12 +126,36 @@ async function loadClient(){
   const id = document.getElementById('clientSelect').value;
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
-  const [{ data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
+  const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
+    sb.from('clients').select('name,height_cm,avatar_url').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
   ]);
-  if (e1 || e2) { alert('Błąd wczytywania danych: ' + ((e1||e2).message)); return; }
+  if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
+  renderProfile(client, meas || []);
   renderDash(meas || [], sets || []);
+}
+
+function renderProfile(client, meas){
+  document.getElementById('clientNameDisplay').textContent = client ? client.name : '';
+
+  const img = document.getElementById('clientAvatarImg');
+  const placeholder = document.getElementById('clientAvatarPlaceholder');
+  if (client && client.avatar_url) {
+    img.src = client.avatar_url;
+    img.style.display = 'block';
+    placeholder.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    placeholder.style.display = 'flex';
+  }
+
+  const weight = meas.length ? meas[meas.length-1].weight_kg : null;
+  const height = client ? client.height_cm : null;
+  const parts = [];
+  if (weight) parts.push(`<div class="pstat">Waga: <b>${weight} kg</b></div>`);
+  if (height) parts.push(`<div class="pstat">Wzrost: <b>${height} cm</b></div>`);
+  document.getElementById('clientProfileStats').innerHTML = parts.join('') || '<div class="hint">Brak jeszcze danych.</div>';
 }
 
 function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
