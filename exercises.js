@@ -81,3 +81,10 @@ const MUSCLE_GROUPS = {
 };
 
 const CUSTOM_OPTION = "__custom__";
+
+// Cardio ma inne pola niż ćwiczenia siłowe (czas, obciążenie/poziom, wzniesienie
+// zamiast serii/powtórzeń/ciężaru). Te listy mówią, które ćwiczenia cardio
+// potrzebują którego dodatkowego pola.
+const CARDIO_GROUP = "Cardio";
+const INCLINE_EXERCISES = ["Bieżnia"];
+const RESISTANCE_EXERCISES = ["Orbitrek", "Rower", "Wiosłowanie (erg)"];
