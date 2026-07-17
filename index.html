@@ -49,9 +49,22 @@
   <!-- ===== EKRAN GŁÓWNY ===== -->
   <div id="screen-main" style="display:none;">
 
-    <div class="card center">
-      <div class="sub" style="margin-bottom:0;">Zalogowany jako</div>
-      <strong id="me-name" style="font-size:16px;"></strong>
+    <div id="reportWarning" class="alert-banner" style="display:none;"></div>
+
+    <div class="card">
+      <div class="profile-row">
+        <div class="avatar-wrap">
+          <img id="avatarImg" class="avatar-img" src="" alt="" style="display:none;">
+          <div id="avatarPlaceholder" class="avatar-placeholder">🙂</div>
+          <label class="avatar-edit" for="avatarInput">✎</label>
+          <input type="file" id="avatarInput" accept="image/*" style="display:none;" onchange="uploadAvatar(this)">
+        </div>
+        <div class="profile-info">
+          <div class="sub" style="margin-bottom:2px;">Zalogowany jako</div>
+          <strong id="me-name" style="font-size:16px;"></strong>
+          <div class="profile-stats" id="profileStats"></div>
+        </div>
+      </div>
       <div class="spacer"></div>
       <button class="btn secondary" onclick="logout()">To nie ja / zmień</button>
     </div>
@@ -185,6 +198,83 @@ function enterMain(id, name){
   if (lastMeas) document.getElementById('lastMeasSent').textContent = '✅ Ostatnio wysłano: ' + lastMeas;
   const lastWorkout = localStorage.getItem('tmw_last_workout_' + id);
   if (lastWorkout) document.getElementById('lastWorkoutSent').textContent = '✅ Ostatnio wysłano: ' + lastWorkout;
+
+  loadProfileSummary(id);
+  checkWeeklyReport(id);
+}
+
+// ---------- PROFIL: awatar, waga, wzrost ----------
+async function loadProfileSummary(clientId){
+  const [{ data: client, error: e1 }, { data: meas, error: e2 }] = await Promise.all([
+    sb.from('clients').select('height_cm,avatar_url').eq('id', clientId).single(),
+    sb.from('measurements').select('weight_kg,measured_at').eq('client_id', clientId).order('measured_at', { ascending: false }).limit(1),
+  ]);
+  if (e1 || e2) { return; }
+
+  if (client && client.avatar_url) {
+    const img = document.getElementById('avatarImg');
+    img.src = client.avatar_url;
+    img.style.display = 'block';
+    document.getElementById('avatarPlaceholder').style.display = 'none';
+  }
+
+  const weight = (meas && meas.length) ? meas[0].weight_kg : null;
+  const height = client ? client.height_cm : null;
+  const parts = [];
+  if (weight) parts.push(`<div class="pstat">Waga: <b>${weight} kg</b></div>`);
+  if (height) parts.push(`<div class="pstat">Wzrost: <b>${height} cm</b></div>`);
+  document.getElementById('profileStats').innerHTML = parts.join('');
+}
+
+async function uploadAvatar(input){
+  const file = input.files[0];
+  if (!file) return;
+  const MAX_AVATAR_MB = 5;
+  if (file.size > MAX_AVATAR_MB * 1024 * 1024) { showToast('Zdjęcie za duże (max ' + MAX_AVATAR_MB + 'MB).'); return; }
+  const clientId = localStorage.getItem('tmw_client_id');
+  const path = clientId + '/avatar_' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.\-_]/g,'_');
+  try {
+    const { error: upErr } = await sb.storage.from('videos').upload(path, file);
+    if (upErr) throw upErr;
+    const { data: pub } = sb.storage.from('videos').getPublicUrl(path);
+    const { error: updErr } = await sb.from('clients').update({ avatar_url: pub.publicUrl }).eq('id', clientId);
+    if (updErr) throw updErr;
+    const img = document.getElementById('avatarImg');
+    img.src = pub.publicUrl;
+    img.style.display = 'block';
+    document.getElementById('avatarPlaceholder').style.display = 'none';
+    showToast('Zdjęcie zapisane!');
+  } catch (err) {
+    showToast('Błąd zapisu zdjęcia: ' + err.message);
+  }
+}
+
+// ---------- PRZYPOMNIENIE O RAPORCIE TYGODNIOWYM ----------
+async function checkWeeklyReport(clientId){
+  const banner = document.getElementById('reportWarning');
+  const { data: meas, error } = await sb.from('measurements')
+    .select('measured_at')
+    .eq('client_id', clientId)
+    .order('measured_at', { ascending: false })
+    .limit(1);
+  if (error) return;
+
+  const now = new Date();
+  let daysSince = null;
+  if (meas && meas.length) {
+    const last = new Date(meas[0].measured_at);
+    daysSince = Math.floor((now - last) / (1000*60*60*24));
+  }
+
+  if (daysSince === null) {
+    banner.textContent = '⚠️ Nie masz jeszcze żadnego pomiaru tygodniowego. Uzupełnij go poniżej — to obowiązkowe raz w tygodniu.';
+    banner.style.display = 'block';
+  } else if (daysSince >= 7) {
+    banner.textContent = '⚠️ Nie wykonałeś pomiaru tygodniowego! Ostatni pomiar: ' + daysSince + ' dni temu. Uzupełnij go poniżej.';
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
 }
 
 function markSent(kind, clientId){
@@ -229,6 +319,8 @@ async function saveMeasurement(){
   if (error) { showToast('Błąd zapisu: ' + error.message); return; }
   showToast('Pomiar zapisany. Dzięki!');
   markSent('meas', clientId);
+  checkWeeklyReport(clientId);
+  loadProfileSummary(clientId);
 }
 
 // ---------- LOG TRENINGU ----------
