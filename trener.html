@@ -213,7 +213,7 @@ function renderDash(meas, sets){
   });
 
   const byExercise = {};
-  sets.forEach(s => {
+  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
     const key = s.exercise_name || '(bez nazwy)';
     if (!byExercise[key]) byExercise[key] = { total: 0, last: s.logged_at, count: 0 };
     byExercise[key].total += volumeOf(s);
@@ -240,8 +240,7 @@ function renderDash(meas, sets){
     exList.innerHTML = sets.slice().reverse().map(s => `
       <div class="exercise-row">
         <strong>${s.logged_at} — ${escapeHtml(s.exercise_name||'')}</strong><br>
-        ${s.sets||'-'}x${s.reps||'-'} @ ${s.weight_kg||'-'}kg
-        (objętość: ${volumeOf(s)} kg)
+        ${formatExerciseDetails(s)}
         ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
         ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
       </div>
@@ -269,6 +268,16 @@ function stat(label, value, delta){
 }
 
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function formatExerciseDetails(s){
+  if (s.duration_min !== null && s.duration_min !== undefined) {
+    let txt = 'Czas: ' + s.duration_min + ' min';
+    if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
+    if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
+    return txt;
+  }
+  return (s.sets||'-')+'x'+(s.reps||'-')+' @ '+(s.weight_kg||'-')+'kg (objętość: '+volumeOf(s)+' kg)';
+}
 </script>
 </body>
 </html>
