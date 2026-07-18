@@ -52,6 +52,14 @@
         <div class="comment-display" id="display-waga"></div>
       </div>
 
+      <div class="report-section" id="photosSection" style="display:none;">
+        <h2>Zdjęcia sylwetki — porównanie</h2>
+        <div class="grid2">
+          <div><div class="hint" style="margin-bottom:8px;">Pierwszy pomiar</div><div id="photosFirst"></div></div>
+          <div><div class="hint" style="margin-bottom:8px;">Najnowszy pomiar</div><div id="photosLast"></div></div>
+        </div>
+      </div>
+
       <div class="report-section">
         <h2>Obwody ciała</h2>
         <canvas id="circChart" height="140"></canvas>
@@ -160,6 +168,7 @@ async function loadReport(){
   document.getElementById('reportMeta').textContent = 'Wygenerowano: ' + today + (meas.length ? ' · dane od ' + meas[0].measured_at : '');
 
   renderStats(meas);
+  renderPhotos(meas);
   renderWeightChart(meas);
   renderCircChart(meas);
   renderVolChart(sets);
@@ -176,6 +185,22 @@ function renderStats(meas){
     ${stat('Masa ciała — start', (first.weight_kg||'-')+' kg', null)}
     ${stat('Masa ciała — teraz', (last.weight_kg||'-')+' kg', num(last.weight_kg) - num(first.weight_kg))}
   `;
+}
+
+function renderPhotos(meas){
+  const withPhotos = meas.filter(m => m.photo_front_url || m.photo_back_url || m.photo_side_url);
+  if (withPhotos.length === 0) return;
+  document.getElementById('photosSection').style.display = 'block';
+  document.getElementById('photosFirst').innerHTML = photoSet(withPhotos[0]);
+  document.getElementById('photosLast').innerHTML = photoSet(withPhotos[withPhotos.length - 1]);
+}
+
+function photoSet(m){
+  const shots = [['przód', m.photo_front_url], ['tył', m.photo_back_url], ['bok', m.photo_side_url]];
+  return '<div class="hint" style="margin-bottom:6px;">' + (m.measured_at||'') + '</div>' +
+    shots.filter(([,url]) => url).map(([label, url]) =>
+      `<img src="${url}" alt="${label}" style="width:100%;max-width:110px;border-radius:8px;margin:0 6px 6px 0;border:1px solid var(--border);">`
+    ).join('');
 }
 
 function stat(label, value, delta){
