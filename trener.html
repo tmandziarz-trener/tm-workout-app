@@ -54,12 +54,13 @@
       <div class="card"><h2>Obwody ciała</h2><canvas id="circChart"></canvas></div>
       <div class="card"><h2>Objętość treningowa — suma z treningu</h2><canvas id="volChart"></canvas></div>
       <div class="card">
-        <h2>Objętość — suma per ćwiczenie</h2>
-        <div class="sub">Łączna objętość każdego ćwiczenia z całej historii tego klienta.</div>
+        <h2>Objętość per ćwiczenie — trening do treningu</h2>
+        <div class="sub">Objętość danego ćwiczenia w każdym treningu osobno (nie suma z całej historii) — widać, czy rośnie czy spada.</div>
         <table id="exVolTable"></table>
       </div>
       <div class="card">
-        <h2>Ćwiczenia zgłoszone do przeglądu</h2>
+        <h2>Treningi klienta</h2>
+        <div class="sub">Kliknij trening, żeby rozwinąć wszystkie ćwiczenia.</div>
         <div id="exList"></div>
       </div>
       <div class="card">
@@ -161,6 +162,12 @@ function renderProfile(client, meas){
 function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
 
 function volumeOf(s){
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    return s.sets_detail.reduce((sum, st) => {
+      const r = num(st.reps), w = num(st.weight_kg);
+      return sum + ((r !== null && w !== null) ? r * w : 0);
+    }, 0);
+  }
   const sets_ = num(s.sets), reps = num(s.reps), w = num(s.weight_kg);
   if (sets_ === null || reps === null || w === null) return 0;
   return sets_ * reps * w;
@@ -212,40 +219,8 @@ function renderDash(meas, sets){
     options:{plugins:{legend:{display:false}}}
   });
 
-  const byExercise = {};
-  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
-    const key = s.exercise_name || '(bez nazwy)';
-    if (!byExercise[key]) byExercise[key] = { total: 0, last: s.logged_at, count: 0 };
-    byExercise[key].total += volumeOf(s);
-    byExercise[key].count += 1;
-    if (s.logged_at > byExercise[key].last) byExercise[key].last = s.logged_at;
-  });
-  const exVolRows = Object.entries(byExercise).sort((a,b) => b[1].total - a[1].total);
-  const exVolTbl = document.getElementById('exVolTable');
-  if (exVolRows.length === 0) {
-    exVolTbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
-  } else {
-    exVolTbl.innerHTML = `
-      <tr><th>Ćwiczenie</th><th>Suma objętości</th><th>Liczba wpisów</th><th>Ostatnio</th></tr>
-      ${exVolRows.map(([name, v]) => `
-        <tr><td>${escapeHtml(name)}</td><td>${v.total} kg</td><td>${v.count}</td><td>${v.last}</td></tr>
-      `).join('')}
-    `;
-  }
-
-  const exList = document.getElementById('exList');
-  if (sets.length === 0) {
-    exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
-  } else {
-    exList.innerHTML = sets.slice().reverse().map(s => `
-      <div class="exercise-row">
-        <strong>${s.logged_at} — ${escapeHtml(s.exercise_name||'')}</strong><br>
-        ${formatExerciseDetails(s)}
-        ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
-        ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
-      </div>
-    `).join('');
-  }
+  renderExerciseTrend(sets);
+  renderTrainingList(sets);
 
   const tbl = document.getElementById('historyTable');
   tbl.innerHTML = `
@@ -254,6 +229,79 @@ function renderDash(meas, sets){
       <tr><td>${m.measured_at||''}</td><td>${m.weight_kg||''}</td><td>${m.waist_cm||''}</td><td>${m.hip_cm||''}</td><td>${photoThumbs(m)}</td></tr>
     `).join('')}
   `;
+}
+
+function renderExerciseTrend(sets){
+  const byExercise = {};
+  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
+    const key = s.exercise_name || '(bez nazwy)';
+    (byExercise[key] = byExercise[key] || []).push({ date: s.logged_at, vol: volumeOf(s) });
+  });
+  const names = Object.keys(byExercise).sort();
+  const tbl = document.getElementById('exVolTable');
+  if (names.length === 0) {
+    tbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
+    return;
+  }
+  tbl.innerHTML = `
+    <tr><th>Ćwiczenie</th><th>Ostatnie treningi (data: objętość)</th><th>Zmiana</th></tr>
+    ${names.map(name => {
+      const occ = byExercise[name].slice().sort((a,b) => a.date.localeCompare(b.date));
+      const last6 = occ.slice(-6);
+      const chips = last6.map(o => `<span class="trend-chip">${o.date}: <b>${o.vol} kg</b></span>`).join('');
+      let trend = '<span class="hint">—</span>';
+      if (occ.length >= 2) {
+        const diff = occ[occ.length-1].vol - occ[occ.length-2].vol;
+        const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '—');
+        const color = diff > 0 ? 'var(--good)' : (diff < 0 ? 'var(--bad)' : 'var(--text-muted)');
+        trend = `<span style="color:${color};font-weight:700;">${arrow} ${diff>0?'+':''}${diff} kg</span>`;
+      }
+      return `<tr><td>${escapeHtml(name)}</td><td>${chips}</td><td>${trend}</td></tr>`;
+    }).join('')}
+  `;
+}
+
+function renderTrainingList(sets){
+  const exList = document.getElementById('exList');
+  if (sets.length === 0) {
+    exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
+    return;
+  }
+  const byDate = {};
+  sets.forEach(s => { (byDate[s.logged_at] = byDate[s.logged_at] || []).push(s); });
+  const dates = Object.keys(byDate).sort().reverse();
+  exList.innerHTML = dates.map((d, idx) => {
+    const rows = byDate[d];
+    const totalVol = rows.reduce((sum, s) => sum + volumeOf(s), 0);
+    const flagged = rows.filter(s => s.note).length;
+    return `
+      <div class="training-row" onclick="toggleTraining(${idx})">
+        <div class="hi-info">
+          <strong>${d}</strong>
+          <div class="hint">${rows.length} ćwiczeń · objętość: ${totalVol} kg${flagged ? ' · 💬 ' + flagged + ' z pytaniem' : ''}</div>
+        </div>
+        <span class="chev" id="chev-${idx}">▾</span>
+      </div>
+      <div class="training-detail" id="detail-${idx}" style="display:none;">
+        ${rows.map(s => `
+          <div class="exercise-row">
+            <strong>${escapeHtml(s.exercise_name||'')}</strong><br>
+            ${formatExerciseDetails(s)}
+            ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
+            ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleTraining(idx){
+  const detail = document.getElementById('detail-' + idx);
+  const chev = document.getElementById('chev-' + idx);
+  const open = detail.style.display !== 'none';
+  detail.style.display = open ? 'none' : 'block';
+  chev.textContent = open ? '▾' : '▴';
 }
 
 function photoThumbs(m){
@@ -282,6 +330,10 @@ function formatExerciseDetails(s){
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
     return txt;
+  }
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    const parts = s.sets_detail.map(st => (st.reps??'-')+'x'+(st.weight_kg??'-')+'kg');
+    return parts.join(', ') + ' (objętość: ' + volumeOf(s) + ' kg)';
   }
   return (s.sets||'-')+'x'+(s.reps||'-')+' @ '+(s.weight_kg||'-')+'kg (objętość: '+volumeOf(s)+' kg)';
 }
