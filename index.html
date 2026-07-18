@@ -463,11 +463,13 @@ function addExerciseRow(prefill){
       <input type="text" class="ex-custom-name" placeholder="wpisz nazwę ćwiczenia" oninput="onRowInput(this)">
     </div>
     <div class="strength-fields">
-      <div class="grid2">
-        <div class="field"><label>Serie</label><input type="number" class="ex-sets" value="3" oninput="onRowInput(this)"></div>
-        <div class="field"><label>Powtórzenia</label><input type="number" class="ex-reps" value="10" oninput="onRowInput(this)"></div>
+      <label>Serie</label>
+      <div class="sets-list"></div>
+      <button type="button" class="btn ghost" style="width:100%;margin-top:4px;" onclick="addSetRow(this.closest('.exercise-row'))">+ dodaj serię</button>
+      <div class="rest-box">
+        <button type="button" class="btn secondary rest-start" onclick="startRestTimer(this.closest('.exercise-row'))">⏱ Start odpoczynku (2:00)</button>
+        <span class="rest-display"></span>
       </div>
-      <div class="field"><label>Ciężar (kg)</label><input type="number" step="0.5" class="ex-weight" value="20" oninput="onRowInput(this)"></div>
       <div class="hint">Objętość tego ćwiczenia: <strong class="ex-vol">0 kg</strong></div>
     </div>
     <div class="cardio-fields" style="display:none;">
@@ -502,17 +504,103 @@ function addExerciseRow(prefill){
       row.querySelector('.ex-duration').value = prefill.duration_min;
       row.querySelector('.ex-resistance').value = prefill.resistance_level ?? '';
       row.querySelector('.ex-incline').value = prefill.incline_level ?? '';
-    } else {
-      row.querySelector('.ex-sets').value = prefill.sets ?? '';
-      row.querySelector('.ex-reps').value = prefill.reps ?? '';
-      row.querySelector('.ex-weight').value = prefill.weight_kg ?? '';
+    } else if (Array.isArray(prefill.sets_detail) && prefill.sets_detail.length) {
+      // Nowy format: każda seria zapisana osobno.
+      prefill.sets_detail.forEach(s => addSetRow(row, s.reps, s.weight_kg));
+    } else if (prefill.sets) {
+      // Starszy wpis (jedna wartość powtórzeń/ciężaru na całe ćwiczenie) — rozbijamy na tyle
+      // samych serii, żeby dało się je dalej edytować pojedynczo.
+      for (let n = 0; n < Number(prefill.sets); n++) addSetRow(row, prefill.reps, prefill.weight_kg);
     }
     row.querySelector('.ex-videolink').value = prefill.video_url || '';
     row.querySelector('.ex-note').value = prefill.note || '';
   }
 
+  if (row.querySelector('.sets-list').children.length === 0) {
+    addSetRow(row, 10, 20); addSetRow(row, 10, 20); addSetRow(row, 10, 20);
+  }
+
   updateRowVolume(row);
   updateTotalVolume();
+}
+
+// ---------- SERIE (każda osobno) ----------
+function addSetRow(row, reps, weight){
+  const list = row.querySelector('.sets-list');
+  const n = list.children.length + 1;
+  const setRow = document.createElement('div');
+  setRow.className = 'set-row';
+  setRow.innerHTML = `
+    <span class="set-label">Seria ${n}</span>
+    <input type="number" class="set-reps" placeholder="Powt." value="${reps ?? 10}" oninput="onRowInput(this)">
+    <input type="number" step="0.5" class="set-weight" placeholder="Ciężar (kg)" value="${weight ?? 20}" oninput="onRowInput(this)">
+    <button type="button" class="set-timer" title="Start odpoczynku (2:00)" onclick="startRestTimer(this.closest('.exercise-row'))">⏱</button>
+    <button type="button" class="set-remove" title="Usuń serię" onclick="removeSetRow(this)">✕</button>
+  `;
+  list.appendChild(setRow);
+  updateRowVolume(row);
+  updateTotalVolume();
+}
+
+function removeSetRow(btn){
+  const row = btn.closest('.exercise-row');
+  const setRow = btn.closest('.set-row');
+  setRow.remove();
+  renumberSets(row);
+  updateRowVolume(row);
+  updateTotalVolume();
+}
+
+function renumberSets(row){
+  const list = row.querySelectorAll('.set-row');
+  list.forEach((setRow, i) => { setRow.querySelector('.set-label').textContent = 'Seria ' + (i+1); });
+}
+
+function getSetsDetail(row){
+  return Array.from(row.querySelectorAll('.set-row')).map(setRow => {
+    const reps = parseFloat(setRow.querySelector('.set-reps').value);
+    const weight = parseFloat(setRow.querySelector('.set-weight').value);
+    return { reps: isNaN(reps) ? null : reps, weight_kg: isNaN(weight) ? null : weight };
+  });
+}
+
+// ---------- STOPER ODPOCZYNKU ----------
+function fmtRestTime(sec){
+  const m = Math.floor(sec/60), s = sec%60;
+  return m + ':' + String(s).padStart(2,'0');
+}
+
+function beepRest(){
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; g.gain.value = 0.18;
+    o.start();
+    setTimeout(() => { o.stop(); ctx.close(); }, 350);
+  } catch (e) { /* audio niedostępne — nic się nie dzieje */ }
+}
+
+function startRestTimer(row, seconds){
+  seconds = seconds || 120;
+  const disp = row.querySelector('.rest-display');
+  if (!disp) return;
+  if (row._restInterval) clearInterval(row._restInterval);
+  let remaining = seconds;
+  disp.classList.remove('rest-done');
+  disp.textContent = '⏳ ' + fmtRestTime(remaining);
+  row._restInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(row._restInterval);
+      row._restInterval = null;
+      disp.textContent = '✅ Czas minął — kolejna seria!';
+      disp.classList.add('rest-done');
+      beepRest();
+      return;
+    }
+    disp.textContent = '⏳ ' + fmtRestTime(remaining);
+  }, 1000);
 }
 
 function onGroupChange(sel){
@@ -583,10 +671,10 @@ function onRowInput(el){
 function updateRowVolume(row){
   const group = row.querySelector('.ex-group').value;
   if (group === CARDIO_GROUP) { row.dataset.volume = 0; return; }
-  const sets = parseFloat(row.querySelector('.ex-sets').value);
-  const reps = parseFloat(row.querySelector('.ex-reps').value);
-  const weight = parseFloat(row.querySelector('.ex-weight').value);
-  const vol = (isNaN(sets)||isNaN(reps)||isNaN(weight)) ? 0 : sets*reps*weight;
+  const sets = getSetsDetail(row);
+  const vol = sets.reduce((sum, s) => {
+    return sum + ((s.reps !== null && s.weight_kg !== null) ? s.reps * s.weight_kg : 0);
+  }, 0);
   const disp = row.querySelector('.ex-vol');
   if (disp) disp.textContent = vol + ' kg';
   row.dataset.volume = vol;
@@ -653,14 +741,17 @@ async function saveWorkout(){
       const isCardio = row.querySelector('.ex-group').value === CARDIO_GROUP;
       const resistanceVisible = row.querySelector('.ex-resistance-wrap').style.display !== 'none';
       const inclineVisible = row.querySelector('.ex-incline-wrap').style.display !== 'none';
+      const setsDetail = isCardio ? [] : getSetsDetail(row).filter(s => s.reps !== null || s.weight_kg !== null);
+      const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length) : null;
 
       entries.push({
         client_id: clientId,
         logged_at: date,
         exercise_name: getExerciseName(row),
-        sets: isCardio ? null : (row.querySelector('.ex-sets').value || null),
-        reps: isCardio ? null : (row.querySelector('.ex-reps').value || null),
-        weight_kg: isCardio ? null : (row.querySelector('.ex-weight').value || null),
+        sets: isCardio ? null : (setsDetail.length || null),
+        reps: isCardio ? null : avg(setsDetail.map(s=>s.reps).filter(v=>v!==null)),
+        weight_kg: isCardio ? null : avg(setsDetail.map(s=>s.weight_kg).filter(v=>v!==null)),
+        sets_detail: isCardio ? null : (setsDetail.length ? setsDetail : null),
         duration_min: isCardio ? (row.querySelector('.ex-duration').value || null) : null,
         resistance_level: (isCardio && resistanceVisible) ? (row.querySelector('.ex-resistance').value || null) : null,
         incline_level: (isCardio && inclineVisible) ? (row.querySelector('.ex-incline').value || null) : null,
@@ -723,10 +814,24 @@ async function loadHistory(){
           <strong>${d}</strong>
           <div class="hint">${rows.length} ćwiczeń: ${names}</div>
         </div>
-        <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
+          <button class="btn danger" onclick="deleteWorkoutDate('${d}')">Usuń</button>
+        </div>
       </div>
     `;
   }).join('');
+}
+
+async function deleteWorkoutDate(date){
+  if (!confirm('Na pewno usunąć cały raport treningu z dnia ' + date + '? Tej operacji nie można odwrócić.')) return;
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { error } = await sb.from('exercise_logs').delete().eq('client_id', clientId).eq('logged_at', date);
+  if (error) { showToast('Błąd usuwania: ' + error.message); return; }
+  showToast('Trening usunięty.');
+  if (editingDate === date) cancelEditWorkout();
+  loadHistory();
+  loadWeeklyTrainingCount(clientId);
 }
 
 function escapeHtmlLocal(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
