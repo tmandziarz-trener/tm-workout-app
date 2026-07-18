@@ -63,6 +63,8 @@ canvas{max-height:260px;}
 .profile-stats .pstat{font-size:13px;color:var(--dark);}
 .profile-stats .pstat b{color:var(--accent-dark);}
 
+.weekly-training-stat{margin-top:8px;font-size:13px;line-height:1.4;color:var(--dark);background:#fff8ef;border:1px dashed var(--accent-dark);border-radius:8px;padding:8px 10px;}
+
 .photo-note{background:#fff8ef;border:1px dashed var(--accent-dark);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--dark);margin-bottom:12px;}
 
 .history-item{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:#fafaf9;display:flex;align-items:center;justify-content:space-between;gap:10px;}
