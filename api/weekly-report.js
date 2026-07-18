@@ -54,9 +54,22 @@ export default async function handler(req, res) {
 }
 
 function volumeOf(s) {
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    return s.sets_detail.reduce((sum, st) => {
+      const r = parseFloat(st.reps), w = parseFloat(st.weight_kg);
+      return sum + ((!isNaN(r) && !isNaN(w)) ? r * w : 0);
+    }, 0);
+  }
   const sets_ = parseFloat(s.sets), reps = parseFloat(s.reps), w = parseFloat(s.weight_kg);
   if (isNaN(sets_) || isNaN(reps) || isNaN(w)) return 0;
   return sets_ * reps * w;
+}
+
+function formatSets(s) {
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    return s.sets_detail.map(st => (st.reps ?? '-') + 'x' + (st.weight_kg ?? '-') + 'kg').join(', ');
+  }
+  return (s.sets || '-') + 'x' + (s.reps || '-') + ' @ ' + (s.weight_kg || '-') + 'kg';
 }
 
 function esc(s) {
@@ -78,7 +91,7 @@ function buildReportHtml(clients, meas, sets, since) {
           <tr><td>${m.measured_at}</td><td>${m.weight_kg || ''}</td><td>${m.waist_cm || ''}</td><td>${m.hip_cm || ''}</td></tr>
         `).join('');
         const exRows = c.sets.map(s => `
-          <li><strong>${esc(s.exercise_name)}</strong> — ${s.sets || '-'}x${s.reps || '-'} @ ${s.weight_kg || '-'}kg
+          <li><strong>${esc(s.exercise_name)}</strong> — ${formatSets(s)}
           (objętość: ${volumeOf(s)} kg)
           ${s.video_url ? ' — <a href="' + s.video_url + '">wideo</a>' : ''}
           ${s.note ? '<br><em>💬 ' + esc(s.note) + '</em>' : ''}</li>
