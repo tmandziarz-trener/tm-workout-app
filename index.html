@@ -72,6 +72,7 @@
     <div class="tabs">
       <button id="tab-meas" class="active" onclick="showTab('meas')">Pomiar tygodniowy</button>
       <button id="tab-train" onclick="showTab('train')">Log treningu</button>
+      <button id="tab-history" onclick="showTab('history')">Historia</button>
     </div>
 
     <!-- ----- POMIAR TYGODNIOWY ----- -->
@@ -89,14 +90,25 @@
         <div class="field"><label>Biodro (cm)</label><input type="number" step="0.1" id="m_hip"></div>
       </div>
       <div class="field"><label>Prawe udo (cm)</label><input type="number" step="0.1" id="m_thigh"></div>
+
+      <div class="photo-note">
+        📸 Zrób 3 zdjęcia sylwetki: <b>przodem, tyłem i bokiem</b>. Zawsze o tej samej porze dnia, pod tym samym kątem i w tym samym świetle — tylko tak da się rzetelnie porównać postępy. Zdjęcia są opcjonalne, ale bardzo pomagają w ocenie zmian.
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Zdjęcie — przodem</label><input type="file" id="m_photo_front" accept="image/*"></div>
+        <div class="field"><label>Zdjęcie — tyłem</label><input type="file" id="m_photo_back" accept="image/*"></div>
+      </div>
+      <div class="field"><label>Zdjęcie — bokiem</label><input type="file" id="m_photo_side" accept="image/*"></div>
+
       <button class="btn" id="btn-save-meas" onclick="saveMeasurement()">Zapisz pomiar</button>
+      <div class="progress" id="measProgress"></div>
       <div class="hint" id="lastMeasSent" style="margin-top:10px;"></div>
     </div>
 
     <!-- ----- LOG TRENINGU ----- -->
     <div id="panel-train" class="card" style="display:none;">
-      <h2>Log treningu</h2>
-      <div class="sub">Dodaj tyle ćwiczeń, ile chcesz — wszystkie zapiszą się za jednym razem. Wideo i pytanie są opcjonalne, dodaj je tylko przy ćwiczeniach, które chcesz, żeby trener sprawdził.</div>
+      <h2 id="trainHeading">Log treningu</h2>
+      <div class="sub" id="trainSub">Dodaj tyle ćwiczeń, ile chcesz — wszystkie zapiszą się za jednym razem. Wideo i pytanie są opcjonalne, dodaj je tylko przy ćwiczeniach, które chcesz, żeby trener sprawdził.</div>
       <div class="field"><label>Data treningu</label><input type="date" id="t_date"></div>
       <div id="exerciseRows"></div>
       <button class="btn ghost" style="width:100%;margin-bottom:14px;" onclick="addExerciseRow()">+ dodaj ćwiczenie</button>
@@ -105,8 +117,16 @@
         <div class="num" id="totalVolume">0 kg</div>
       </div>
       <button class="btn" id="btn-save-workout" onclick="saveWorkout()">Zapisz cały trening</button>
+      <button class="btn secondary" id="btn-cancel-edit" style="display:none;margin-top:10px;width:100%;" onclick="cancelEditWorkout()">Anuluj edycję</button>
       <div class="progress" id="uploadProgress"></div>
       <div class="hint" id="lastWorkoutSent" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- ----- HISTORIA TRENINGÓW ----- -->
+    <div id="panel-history" class="card" style="display:none;">
+      <h2>Historia treningów</h2>
+      <div class="sub">Twoje zapisane treningi. Kliknij "Edytuj", żeby poprawić dany trening.</div>
+      <div id="historyList"></div>
     </div>
 
   </div>
@@ -118,7 +138,9 @@
 <script src="config.js"></script>
 <script>
 let exerciseCounter = 0;
+let editingDate = null; // jeśli ustawione, "Zapisz cały trening" nadpisuje trening z tej daty
 const MAX_VIDEO_MB = 50; // limit pojedynczego pliku ustawiony na buckecie "videos" w Supabase
+const MAX_PHOTO_MB = 8;
 
 document.getElementById('t_date').value = todayStr();
 document.getElementById('m_date').value = todayStr();
@@ -293,38 +315,78 @@ function logout(){
 function showTab(which){
   document.getElementById('tab-meas').classList.toggle('active', which==='meas');
   document.getElementById('tab-train').classList.toggle('active', which==='train');
+  document.getElementById('tab-history').classList.toggle('active', which==='history');
   document.getElementById('panel-meas').style.display = which==='meas' ? 'block' : 'none';
   document.getElementById('panel-train').style.display = which==='train' ? 'block' : 'none';
+  document.getElementById('panel-history').style.display = which==='history' ? 'block' : 'none';
+  if (which === 'history') loadHistory();
 }
 
 // ---------- POMIAR ----------
+async function uploadPhotoIfAny(inputId, clientId, label){
+  const input = document.getElementById(inputId);
+  const file = input.files[0];
+  if (!file) return null;
+  if (file.size > MAX_PHOTO_MB * 1024 * 1024) {
+    throw new Error('Zdjęcie (' + label + ') jest za duże (max ' + MAX_PHOTO_MB + 'MB).');
+  }
+  const path = clientId + '/photo_' + label + '_' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.\-_]/g,'_');
+  const { error } = await sb.storage.from('videos').upload(path, file);
+  if (error) throw new Error('Zdjęcie (' + label + '): ' + error.message);
+  const { data: pub } = sb.storage.from('videos').getPublicUrl(path);
+  return pub.publicUrl;
+}
+
 async function saveMeasurement(){
   const clientId = localStorage.getItem('tmw_client_id');
   const weight = document.getElementById('m_weight').value;
   if (!weight) { showToast('Podaj przynajmniej masę ciała.'); return; }
   const btn = document.getElementById('btn-save-meas');
+  const progress = document.getElementById('measProgress');
   btn.disabled = true;
-  const payload = {
-    client_id: clientId,
-    measured_at: document.getElementById('m_date').value,
-    weight_kg: weight,
-    arm_cm: document.getElementById('m_arm').value || null,
-    chest_cm: document.getElementById('m_chest').value || null,
-    waist_cm: document.getElementById('m_waist').value || null,
-    hip_cm: document.getElementById('m_hip').value || null,
-    thigh_cm: document.getElementById('m_thigh').value || null,
-  };
-  const { error } = await sb.from('measurements').insert(payload);
-  btn.disabled = false;
-  if (error) { showToast('Błąd zapisu: ' + error.message); return; }
-  showToast('Pomiar zapisany. Dzięki!');
-  markSent('meas', clientId);
-  checkWeeklyReport(clientId);
-  loadProfileSummary(clientId);
+
+  try {
+    progress.textContent = 'Wysyłam zdjęcia (jeśli dodane)...';
+    const [frontUrl, backUrl, sideUrl] = await Promise.all([
+      uploadPhotoIfAny('m_photo_front', clientId, 'przod'),
+      uploadPhotoIfAny('m_photo_back', clientId, 'tyl'),
+      uploadPhotoIfAny('m_photo_side', clientId, 'bok'),
+    ]);
+
+    progress.textContent = 'Zapisuję pomiar...';
+    const payload = {
+      client_id: clientId,
+      measured_at: document.getElementById('m_date').value,
+      weight_kg: weight,
+      arm_cm: document.getElementById('m_arm').value || null,
+      chest_cm: document.getElementById('m_chest').value || null,
+      waist_cm: document.getElementById('m_waist').value || null,
+      hip_cm: document.getElementById('m_hip').value || null,
+      thigh_cm: document.getElementById('m_thigh').value || null,
+      photo_front_url: frontUrl,
+      photo_back_url: backUrl,
+      photo_side_url: sideUrl,
+    };
+    const { error } = await sb.from('measurements').insert(payload);
+    if (error) throw error;
+
+    showToast('Pomiar zapisany. Dzięki!');
+    markSent('meas', clientId);
+    checkWeeklyReport(clientId);
+    loadProfileSummary(clientId);
+    document.getElementById('m_photo_front').value = '';
+    document.getElementById('m_photo_back').value = '';
+    document.getElementById('m_photo_side').value = '';
+  } catch (err) {
+    showToast('Błąd zapisu: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    progress.textContent = '';
+  }
 }
 
 // ---------- LOG TRENINGU ----------
-function addExerciseRow(){
+function addExerciseRow(prefill){
   exerciseCounter++;
   const id = exerciseCounter;
   const row = document.createElement('div');
@@ -368,6 +430,37 @@ function addExerciseRow(){
     <div class="field"><label>Opis / pytanie do trenera (opcjonalnie)</label><textarea class="ex-note" rows="2" placeholder="np. czy łokieć powinien iść tak niżej?"></textarea></div>
   `;
   document.getElementById('exerciseRows').appendChild(row);
+
+  if (prefill) {
+    // Znajdź, do jakiej partii należy zapisane ćwiczenie (w bazie mamy tylko nazwę).
+    let group = Object.keys(MUSCLE_GROUPS).find(g => MUSCLE_GROUPS[g].includes(prefill.exercise_name));
+    const groupSel = row.querySelector('.ex-group');
+    if (!group) group = 'Inne';
+    groupSel.value = group;
+    onGroupChange(groupSel);
+
+    const nameSel = row.querySelector('.ex-name');
+    if (group === 'Inne' || !MUSCLE_GROUPS[group].includes(prefill.exercise_name)) {
+      nameSel.value = CUSTOM_OPTION;
+      row.querySelector('.ex-custom-name').value = prefill.exercise_name || '';
+    } else {
+      nameSel.value = prefill.exercise_name;
+    }
+    onExerciseChange(nameSel);
+
+    if (prefill.duration_min !== null && prefill.duration_min !== undefined) {
+      row.querySelector('.ex-duration').value = prefill.duration_min;
+      row.querySelector('.ex-resistance').value = prefill.resistance_level ?? '';
+      row.querySelector('.ex-incline').value = prefill.incline_level ?? '';
+    } else {
+      row.querySelector('.ex-sets').value = prefill.sets ?? '';
+      row.querySelector('.ex-reps').value = prefill.reps ?? '';
+      row.querySelector('.ex-weight').value = prefill.weight_kg ?? '';
+    }
+    row.querySelector('.ex-videolink').value = prefill.video_url || '';
+    row.querySelector('.ex-note').value = prefill.note || '';
+  }
+
   updateRowVolume(row);
   updateTotalVolume();
 }
@@ -526,20 +619,98 @@ async function saveWorkout(){
       });
     }
 
-    progress.textContent = 'Zapisuję trening...';
+    if (editingDate) {
+      progress.textContent = 'Zapisuję zmiany...';
+      const { error: delErr } = await sb.from('exercise_logs').delete().eq('client_id', clientId).eq('logged_at', editingDate);
+      if (delErr) throw delErr;
+    } else {
+      progress.textContent = 'Zapisuję trening...';
+    }
+
     const { error } = await sb.from('exercise_logs').insert(entries);
     if (error) throw error;
 
-    showToast('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!');
+    showToast(editingDate ? 'Zmiany zapisane!' : ('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!'));
     markSent('workout', clientId);
-    document.getElementById('exerciseRows').innerHTML = '';
-    addExerciseRow();
+    cancelEditWorkout();
+    loadHistory();
   } catch (err) {
     showToast('Błąd zapisu: ' + err.message);
   } finally {
     btn.disabled = false;
     progress.textContent = '';
   }
+}
+
+// ---------- HISTORIA TRENINGÓW / EDYCJA ----------
+async function loadHistory(){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const list = document.getElementById('historyList');
+  if (!list) return;
+  list.innerHTML = '<div class="hint">Wczytywanie...</div>';
+  const { data, error } = await sb.from('exercise_logs').select('*').eq('client_id', clientId).order('logged_at', { ascending: false });
+  if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+
+  const byDate = {};
+  (data || []).forEach(row => {
+    if (!byDate[row.logged_at]) byDate[row.logged_at] = [];
+    byDate[row.logged_at].push(row);
+  });
+  const dates = Object.keys(byDate).sort().reverse();
+
+  if (dates.length === 0) {
+    list.innerHTML = '<div class="hint">Nie masz jeszcze zapisanych treningów.</div>';
+    return;
+  }
+
+  list.innerHTML = dates.map(d => {
+    const rows = byDate[d];
+    const names = rows.map(r => escapeHtmlLocal(r.exercise_name)).join(', ');
+    return `
+      <div class="history-item">
+        <div class="hi-info">
+          <strong>${d}</strong>
+          <div class="hint">${rows.length} ćwiczeń: ${names}</div>
+        </div>
+        <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeHtmlLocal(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function editWorkoutDate(date){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { data, error } = await sb.from('exercise_logs').select('*').eq('client_id', clientId).eq('logged_at', date).order('created_at');
+  if (error) { showToast('Błąd wczytywania treningu: ' + error.message); return; }
+
+  editingDate = date;
+  document.getElementById('t_date').value = date;
+  document.getElementById('trainHeading').textContent = 'Edycja treningu — ' + date;
+  document.getElementById('trainSub').textContent = 'Zmień, dodaj albo usuń ćwiczenia z tego treningu i kliknij "Zapisz zmiany".';
+  document.getElementById('btn-save-workout').textContent = 'Zapisz zmiany';
+  document.getElementById('btn-cancel-edit').style.display = 'block';
+
+  document.getElementById('exerciseRows').innerHTML = '';
+  (data || []).forEach(row => addExerciseRow(row));
+  if (!data || data.length === 0) addExerciseRow();
+
+  showTab('train');
+  document.getElementById('tab-history').classList.remove('active');
+  document.getElementById('tab-train').classList.add('active');
+}
+
+function cancelEditWorkout(){
+  editingDate = null;
+  document.getElementById('trainHeading').textContent = 'Log treningu';
+  document.getElementById('trainSub').textContent = 'Dodaj tyle ćwiczeń, ile chcesz — wszystkie zapiszą się za jednym razem. Wideo i pytanie są opcjonalne, dodaj je tylko przy ćwiczeniach, które chcesz, żeby trener sprawdził.';
+  document.getElementById('btn-save-workout').textContent = 'Zapisz cały trening';
+  document.getElementById('btn-cancel-edit').style.display = 'none';
+  document.getElementById('t_date').value = todayStr();
+  document.getElementById('exerciseRows').innerHTML = '';
+  addExerciseRow();
+  addExerciseRow();
 }
 </script>
 </body>
