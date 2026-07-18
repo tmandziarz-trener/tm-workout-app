@@ -73,7 +73,8 @@
       <div class="report-section">
         <h2>Objętość treningowa</h2>
         <canvas id="volChart" height="140"></canvas>
-        <table id="exVolTable" style="margin-top:14px;"></table>
+        <div class="sub" style="margin-top:10px;">Objętość każdego ćwiczenia w kolejnych treningach — widać progresję z sesji na sesję.</div>
+        <table id="exVolTable" style="margin-top:8px;"></table>
         <div class="comment-box no-print">
           <label>Twój komentarz do tej sekcji</label>
           <textarea id="comment-cwiczenia" placeholder="np. Świetna progresja na przysiadzie, objętość rośnie z tygodnia na tydzień..."></textarea>
@@ -138,6 +139,12 @@ function unlock(){
 function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
 
 function volumeOf(s){
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    return s.sets_detail.reduce((sum, st) => {
+      const r = num(st.reps), w = num(st.weight_kg);
+      return sum + ((r !== null && w !== null) ? r * w : 0);
+    }, 0);
+  }
   const sets_ = num(s.sets), reps = num(s.reps), w = num(s.weight_kg);
   if (sets_ === null || reps === null || w === null) return 0;
   return sets_ * reps * w;
@@ -151,6 +158,10 @@ function formatExerciseDetails(s){
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
     return txt;
+  }
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    const parts = s.sets_detail.map(st => (st.reps??'-')+'x'+(st.weight_kg??'-')+'kg');
+    return parts.join(', ') + ' (objętość: ' + volumeOf(s) + ' kg)';
   }
   return (s.sets||'-')+'x'+(s.reps||'-')+' @ '+(s.weight_kg||'-')+'kg (objętość: '+volumeOf(s)+' kg)';
 }
@@ -254,20 +265,30 @@ function renderExVolTable(sets){
   const byExercise = {};
   sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
     const key = s.exercise_name || '(bez nazwy)';
-    if (!byExercise[key]) byExercise[key] = { total: 0, count: 0 };
-    byExercise[key].total += volumeOf(s);
-    byExercise[key].count += 1;
+    (byExercise[key] = byExercise[key] || []).push({ date: s.logged_at, vol: volumeOf(s) });
   });
-  const rows = Object.entries(byExercise).sort((a,b) => b[1].total - a[1].total);
+  const names = Object.keys(byExercise).sort();
   const tbl = document.getElementById('exVolTable');
-  if (rows.length === 0) {
+  if (names.length === 0) {
     tbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
-  } else {
-    tbl.innerHTML = `
-      <tr><th>Ćwiczenie</th><th>Suma objętości</th><th>Liczba wpisów</th></tr>
-      ${rows.map(([name, v]) => `<tr><td>${escapeHtml(name)}</td><td>${v.total} kg</td><td>${v.count}</td></tr>`).join('')}
-    `;
+    return;
   }
+  tbl.innerHTML = `
+    <tr><th>Ćwiczenie</th><th>Ostatnie treningi (data: objętość)</th><th>Zmiana</th></tr>
+    ${names.map(name => {
+      const occ = byExercise[name].slice().sort((a,b) => a.date.localeCompare(b.date));
+      const last6 = occ.slice(-6);
+      const chips = last6.map(o => `<span class="trend-chip">${o.date}: <b>${o.vol} kg</b></span>`).join('');
+      let trend = '<span class="hint">—</span>';
+      if (occ.length >= 2) {
+        const diff = occ[occ.length-1].vol - occ[occ.length-2].vol;
+        const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '—');
+        const color = diff > 0 ? 'var(--good)' : (diff < 0 ? 'var(--bad)' : 'var(--text-muted)');
+        trend = `<span style="color:${color};font-weight:700;">${arrow} ${diff>0?'+':''}${diff} kg</span>`;
+      }
+      return `<tr><td>${escapeHtml(name)}</td><td>${chips}</td><td>${trend}</td></tr>`;
+    }).join('')}
+  `;
 }
 
 function renderExList(sets){
