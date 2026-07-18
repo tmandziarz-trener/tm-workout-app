@@ -63,7 +63,10 @@
           <div class="sub" style="margin-bottom:2px;">Zalogowany jako</div>
           <strong id="me-name" style="font-size:16px;"></strong>
           <div class="profile-stats" id="profileStats"></div>
-          <div class="weekly-training-stat" id="weeklyTrainingStat"></div>
+          <div class="stat-row weekly-stat-row">
+            <div class="stat"><div class="num" id="wtsStrength">0</div><div class="lbl">Siłowe (tydzień)</div></div>
+            <div class="stat"><div class="num" id="wtsCardio">0</div><div class="lbl">Cardio (tydzień)</div></div>
+          </div>
         </div>
       </div>
       <div class="spacer"></div>
@@ -289,24 +292,17 @@ function getCurrentWeekRange(){
   return { from: fmtDateLocal(monday), to: fmtDateLocal(sunday) };
 }
 
-// polska odmiana: 1 -> forma1, 2-4 (poza 12-14) -> forma2, reszta -> forma3
-function plForm(n, forma1, forma2, forma3){
-  if (n === 1) return forma1;
-  const mod10 = n % 10, mod100 = n % 100;
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return forma2;
-  return forma3;
-}
-
 async function loadWeeklyTrainingCount(clientId){
-  const el = document.getElementById('weeklyTrainingStat');
-  if (!el) return;
+  const elStrength = document.getElementById('wtsStrength');
+  const elCardio = document.getElementById('wtsCardio');
+  if (!elStrength || !elCardio) return;
   const { from, to } = getCurrentWeekRange();
   const { data, error } = await sb.from('exercise_logs')
     .select('logged_at,duration_min')
     .eq('client_id', clientId)
     .gte('logged_at', from)
     .lte('logged_at', to);
-  if (error) { el.textContent = ''; return; }
+  if (error) return;
 
   const byDate = {};
   (data || []).forEach(r => {
@@ -320,26 +316,9 @@ async function loadWeeklyTrainingCount(clientId){
     if (v.strength) strengthCount++;
     if (v.cardio) cardioCount++;
   });
-  const total = strengthCount + cardioCount;
 
-  if (total === 0) {
-    el.textContent = '💪 W tym tygodniu nie masz jeszcze zapisanego żadnego treningu.';
-    return;
-  }
-
-  const parts = [];
-  if (strengthCount > 0) {
-    parts.push(strengthCount + ' ' + plForm(strengthCount, 'trening siłowy', 'treningi siłowe', 'treningów siłowych'));
-  }
-  if (cardioCount > 0) {
-    parts.push(cardioCount + ' ' + plForm(cardioCount, 'trening cardio', 'treningi cardio', 'treningów cardio'));
-  }
-
-  const tail = (total === 1)
-    ? '1 jednostka treningowa już jest wykonana.'
-    : total + ' ' + plForm(total, 'jednostka treningowa', 'jednostki treningowe', 'jednostek treningowych') + ' już są wykonane.';
-
-  el.textContent = '💪 W tym tygodniu wykonałeś ' + parts.join(' i ') + ', czyli ' + tail;
+  elStrength.textContent = strengthCount;
+  elCardio.textContent = cardioCount;
 }
 
 // ---------- PRZYPOMNIENIE O RAPORCIE TYGODNIOWYM ----------
