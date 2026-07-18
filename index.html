@@ -114,6 +114,11 @@
       <h2 id="trainHeading">Log treningu</h2>
       <div class="sub" id="trainSub">Dodaj tyle ćwiczeń, ile chcesz — wszystkie zapiszą się za jednym razem. Wideo i pytanie są opcjonalne, dodaj je tylko przy ćwiczeniach, które chcesz, żeby trener sprawdził.</div>
       <div class="field"><label>Data treningu</label><input type="date" id="t_date"></div>
+      <div class="field">
+        <label>Przerwa między seriami (sek)</label>
+        <input type="number" id="restSeconds" min="15" max="600" step="5" value="120" oninput="onRestSecondsChange()">
+        <div class="hint">Stoper ⏱ przy każdej serii odliczy tyle czasu. Ustawienie zapamiętuje się na następny raz.</div>
+      </div>
       <div id="exerciseRows"></div>
       <button class="btn ghost" style="width:100%;margin-bottom:14px;" onclick="addExerciseRow()">+ dodaj ćwiczenie</button>
       <div class="stat" style="margin-bottom:14px;">
@@ -148,6 +153,10 @@ const MAX_PHOTO_MB = 8;
 
 document.getElementById('t_date').value = todayStr();
 document.getElementById('m_date').value = todayStr();
+
+const DEFAULT_REST_SECONDS = 120;
+const savedRestSeconds = localStorage.getItem('tmw_rest_seconds');
+if (savedRestSeconds) document.getElementById('restSeconds').value = savedRestSeconds;
 
 function todayStr(){
   const d = new Date();
@@ -482,6 +491,7 @@ function addExerciseRow(prefill){
     <div class="field"><label>Opis / pytanie do trenera (opcjonalnie)</label><textarea class="ex-note" rows="2" placeholder="np. czy łokieć powinien iść tak niżej?"></textarea></div>
   `;
   document.getElementById('exerciseRows').appendChild(row);
+  updateRestButtonLabels();
 
   if (prefill) {
     // Znajdź, do jakiej partii należy zapisane ćwiczenie (w bazie mamy tylko nazwę).
@@ -581,8 +591,24 @@ function beepRest(){
   } catch (e) { /* audio niedostępne — nic się nie dzieje */ }
 }
 
+function getRestSeconds(){
+  const v = parseInt(document.getElementById('restSeconds').value, 10);
+  return (isNaN(v) || v <= 0) ? DEFAULT_REST_SECONDS : v;
+}
+
+function onRestSecondsChange(){
+  const v = getRestSeconds();
+  localStorage.setItem('tmw_rest_seconds', v);
+  updateRestButtonLabels();
+}
+
+function updateRestButtonLabels(){
+  const label = '⏱ Start odpoczynku (' + fmtRestTime(getRestSeconds()) + ')';
+  document.querySelectorAll('.rest-start').forEach(btn => { btn.textContent = label; });
+}
+
 function startRestTimer(row, seconds){
-  seconds = seconds || 120;
+  seconds = seconds || getRestSeconds();
   const disp = row.querySelector('.rest-display');
   if (!disp) return;
   if (row._restInterval) clearInterval(row._restInterval);
