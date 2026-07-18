@@ -63,6 +63,12 @@ canvas{max-height:260px;}
 .profile-stats .pstat{font-size:13px;color:var(--dark);}
 .profile-stats .pstat b{color:var(--accent-dark);}
 
+.photo-note{background:#fff8ef;border:1px dashed var(--accent-dark);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--dark);margin-bottom:12px;}
+
+.history-item{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:#fafaf9;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.history-item .hi-info strong{font-size:14px;}
+.history-item .hi-info .hint{margin-top:2px;}
+
 /* ===== Raport ===== */
 .report-header{background:var(--card);border:1px solid var(--border);border-top:5px solid var(--accent);padding:24px 24px 20px;border-radius:14px;margin-bottom:20px;}
 .report-header .logo-img{height:34px;margin-bottom:14px;}
