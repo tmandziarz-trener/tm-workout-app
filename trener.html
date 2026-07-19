@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TM Workout — Panel Trenera</title>
-<link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <base target="_top">
+  <?!= include('Stylesheet'); ?>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 
 <header>
-  <img src="logo.png" alt="Tomasz Mandziarz Workout" class="logo-img">
-  <div class="logo-text"><div class="bottom">PANEL TRENERA</div></div>
+  <div class="logo-icon">TM</div>
+  <div class="logo-text">
+    <div class="top">TOMASZ MANDZIARZ</div>
+    <div class="bottom">WORKOUT — PANEL TRENERA</div>
+  </div>
 </header>
 
 <main>
@@ -22,7 +22,6 @@
     <div class="sub">Ten widok jest chroniony hasłem — nie jest to publiczna część aplikacji.</div>
     <div class="field"><label>Hasło</label><input type="password" id="pwd"></div>
     <button class="btn" onclick="checkPassword()">Wejdź</button>
-    <div class="hint" id="lockHint"></div>
   </div>
 
   <div id="screen-dash" style="display:none;">
@@ -33,34 +32,13 @@
 
     <div id="dashContent" style="display:none;">
       <div class="card">
-        <div class="profile-row">
-          <div class="avatar-wrap">
-            <img id="clientAvatarImg" class="avatar-img" src="" alt="" style="display:none;">
-            <div id="clientAvatarPlaceholder" class="avatar-placeholder">🙂</div>
-          </div>
-          <div class="profile-info">
-            <strong id="clientNameDisplay" style="font-size:16px;"></strong>
-            <div class="profile-stats" id="clientProfileStats"></div>
-          </div>
-        </div>
-      </div>
-      <div class="card center">
-        <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
-      </div>
-      <div class="card">
         <div class="stat-row" id="statRow"></div>
         <canvas id="weightChart"></canvas>
       </div>
       <div class="card"><h2>Obwody ciała</h2><canvas id="circChart"></canvas></div>
-      <div class="card"><h2>Objętość treningowa — suma z treningu</h2><canvas id="volChart"></canvas></div>
+      <div class="card"><h2>Objętość treningowa</h2><canvas id="volChart"></canvas></div>
       <div class="card">
-        <h2>Objętość per ćwiczenie — trening do treningu</h2>
-        <div class="sub">Objętość danego ćwiczenia w każdym treningu osobno (nie suma z całej historii) — widać, czy rośnie czy spada.</div>
-        <table id="exVolTable"></table>
-      </div>
-      <div class="card">
-        <h2>Treningi klienta</h2>
-        <div class="sub">Kliknij trening, żeby rozwinąć wszystkie ćwiczenia.</div>
+        <h2>Ćwiczenia zgłoszone do przeglądu</h2>
         <div id="exList"></div>
       </div>
       <div class="card">
@@ -72,32 +50,21 @@
 
 </main>
 
-<script src="config.js"></script>
 <script>
 let weightChart, circChart, volChart;
 
-async function checkPassword(){
+function checkPassword(){
   const pwd = document.getElementById('pwd').value;
-  const hint = document.getElementById('lockHint');
-  hint.textContent = 'Sprawdzam...';
-  try {
-    const res = await fetch('/api/check-trainer-password', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ password: pwd })
-    });
-    const data = await res.json();
-    if (data.ok) {
+  google.script.run.withSuccessHandler(ok => {
+    if (ok) {
       sessionStorage.setItem('tmw_trener_ok', '1');
       document.getElementById('screen-lock').style.display = 'none';
       document.getElementById('screen-dash').style.display = 'block';
       loadNames();
     } else {
-      hint.textContent = 'Błędne hasło.';
+      alert('Błędne hasło.');
     }
-  } catch (err) {
-    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
-  }
+  }).apiCheckTrenerPassword(pwd);
 }
 
 if (sessionStorage.getItem('tmw_trener_ok') === '1') {
@@ -106,92 +73,46 @@ if (sessionStorage.getItem('tmw_trener_ok') === '1') {
   loadNames();
 }
 
-async function loadNames(){
-  const { data, error } = await sb.from('clients').select('id,name').order('name');
-  if (error) { alert('Błąd wczytywania klientów: ' + error.message); return; }
-  const sel = document.getElementById('clientSelect');
-  data.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id; opt.textContent = c.name;
-    sel.appendChild(opt);
-  });
+function loadNames(){
+  google.script.run.withSuccessHandler(names => {
+    const sel = document.getElementById('clientSelect');
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n; opt.textContent = n;
+      sel.appendChild(opt);
+    });
+  }).apiGetClientNames();
 }
 
-function openReport(){
-  const id = document.getElementById('clientSelect').value;
-  if (!id) { alert('Wybierz najpierw klienta.'); return; }
-  window.open('raport.html?client=' + encodeURIComponent(id), '_blank');
+function loadClient(){
+  const name = document.getElementById('clientSelect').value;
+  if (!name) { document.getElementById('dashContent').style.display = 'none'; return; }
+  google.script.run.withSuccessHandler(data => renderDash(name, data)).apiGetClientHistory(name);
 }
 
-async function loadClient(){
-  const id = document.getElementById('clientSelect').value;
-  if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
+function num(v){ const n = parseFloat(v); return isNaN(n) ? null : n; }
 
-  const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('name,height_cm,avatar_url').eq('id', id).single(),
-    sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
-    sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
-  ]);
-  if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
-  renderProfile(client, meas || []);
-  renderDash(meas || [], sets || []);
-}
-
-function renderProfile(client, meas){
-  document.getElementById('clientNameDisplay').textContent = client ? client.name : '';
-
-  const img = document.getElementById('clientAvatarImg');
-  const placeholder = document.getElementById('clientAvatarPlaceholder');
-  if (client && client.avatar_url) {
-    img.src = client.avatar_url;
-    img.style.display = 'block';
-    placeholder.style.display = 'none';
-  } else {
-    img.style.display = 'none';
-    placeholder.style.display = 'flex';
-  }
-
-  const weight = meas.length ? meas[meas.length-1].weight_kg : null;
-  const height = client ? client.height_cm : null;
-  const parts = [];
-  if (weight) parts.push(`<div class="pstat">Waga: <b>${weight} kg</b></div>`);
-  if (height) parts.push(`<div class="pstat">Wzrost: <b>${height} cm</b></div>`);
-  document.getElementById('clientProfileStats').innerHTML = parts.join('') || '<div class="hint">Brak jeszcze danych.</div>';
-}
-
-function num(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
-
-function volumeOf(s){
-  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
-    return s.sets_detail.reduce((sum, st) => {
-      const r = num(st.reps), w = num(st.weight_kg);
-      return sum + ((r !== null && w !== null) ? r * w : 0);
-    }, 0);
-  }
-  const sets_ = num(s.sets), reps = num(s.reps), w = num(s.weight_kg);
-  if (sets_ === null || reps === null || w === null) return 0;
-  return sets_ * reps * w;
-}
-
-function renderDash(meas, sets){
+function renderDash(name, data){
   document.getElementById('dashContent').style.display = 'block';
+  const meas = data.meas || [];
+  const sets = data.sets || [];
 
   if (meas.length) {
     const last = meas[meas.length-1];
     const prev = meas.length > 1 ? meas[meas.length-2] : last;
     document.getElementById('statRow').innerHTML = `
-      ${stat('Masa ciała', (last.weight_kg||'-')+' kg', num(last.weight_kg) - num(prev.weight_kg))}
-      ${stat('Talia', (last.waist_cm||'-')+' cm', num(last.waist_cm) - num(prev.waist_cm))}
+      ${stat('Masa ciała', (last['Masa ciała (kg)']||'-')+' kg', num(last['Masa ciała (kg)']) - num(prev['Masa ciała (kg)']))}
+      ${stat('Talia', (last['Talia — pępek (cm)']||'-')+' cm', num(last['Talia — pępek (cm)']) - num(prev['Talia — pępek (cm)']))}
     `;
   } else {
     document.getElementById('statRow').innerHTML = '<div class="hint">Brak jeszcze pomiarów tego klienta.</div>';
   }
 
-  const labels = meas.map(m => m.measured_at);
+  const labels = meas.map(m => m['Data pomiaru']);
   if (weightChart) weightChart.destroy();
   weightChart = new Chart(document.getElementById('weightChart'), {
     type:'line',
-    data:{labels, datasets:[{label:'Masa ciała (kg)', data:meas.map(m=>num(m.weight_kg)), borderColor:'#c5a689', backgroundColor:'#c5a68933', fill:true, tension:.3}]},
+    data:{labels, datasets:[{label:'Masa ciała (kg)', data:meas.map(m=>num(m['Masa ciała (kg)'])), borderColor:'#c5a689', backgroundColor:'#c5a68933', fill:true, tension:.3}]},
     options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
   });
 
@@ -199,19 +120,20 @@ function renderDash(meas, sets){
   circChart = new Chart(document.getElementById('circChart'), {
     type:'line',
     data:{labels, datasets:[
-      {label:'Talia', data:meas.map(m=>num(m.waist_cm)), borderColor:'#1a1a1a', tension:.3},
-      {label:'Biodro', data:meas.map(m=>num(m.hip_cm)), borderColor:'#c5a689', tension:.3},
-      {label:'Klatka', data:meas.map(m=>num(m.chest_cm)), borderColor:'#b5573f', tension:.3},
+      {label:'Talia', data:meas.map(m=>num(m['Talia — pępek (cm)'])), borderColor:'#1a1a1a', tension:.3},
+      {label:'Biodro', data:meas.map(m=>num(m['Biodro (cm)'])), borderColor:'#c5a689', tension:.3},
+      {label:'Klatka', data:meas.map(m=>num(m['Klatka piersiowa (cm)'])), borderColor:'#b5573f', tension:.3},
     ]},
     options:{scales:{y:{beginAtZero:false}}}
   });
 
   const volByDate = {};
   sets.forEach(s => {
-    const d = s.logged_at;
-    volByDate[d] = (volByDate[d]||0) + volumeOf(s);
+    const d = s['Data'];
+    const v = num(s['Objętość kg (auto)']) || 0;
+    volByDate[d] = (volByDate[d]||0) + v;
   });
-  const volLabels = Object.keys(volByDate).sort();
+  const volLabels = Object.keys(volByDate);
   if (volChart) volChart.destroy();
   volChart = new Chart(document.getElementById('volChart'), {
     type:'bar',
@@ -219,96 +141,28 @@ function renderDash(meas, sets){
     options:{plugins:{legend:{display:false}}}
   });
 
-  renderExerciseTrend(sets);
-  renderTrainingList(sets);
-
-  const tbl = document.getElementById('historyTable');
-  tbl.innerHTML = `
-    <tr><th>Data</th><th>Waga</th><th>Talia</th><th>Biodro</th><th>Zdjęcia</th></tr>
-    ${meas.slice().reverse().map(m => `
-      <tr><td>${m.measured_at||''}</td><td>${m.weight_kg||''}</td><td>${m.waist_cm||''}</td><td>${m.hip_cm||''}</td><td>${photoThumbs(m)}</td></tr>
-    `).join('')}
-  `;
-}
-
-function renderExerciseTrend(sets){
-  const byExercise = {};
-  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
-    const key = s.exercise_name || '(bez nazwy)';
-    (byExercise[key] = byExercise[key] || []).push({ date: s.logged_at, vol: volumeOf(s) });
-  });
-  const names = Object.keys(byExercise).sort();
-  const tbl = document.getElementById('exVolTable');
-  if (names.length === 0) {
-    tbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
-    return;
-  }
-  tbl.innerHTML = `
-    <tr><th>Ćwiczenie</th><th>Ostatnie treningi (data: objętość)</th><th>Zmiana</th></tr>
-    ${names.map(name => {
-      const occ = byExercise[name].slice().sort((a,b) => a.date.localeCompare(b.date));
-      const last6 = occ.slice(-6);
-      const chips = last6.map(o => `<span class="trend-chip">${o.date}: <b>${o.vol} kg</b></span>`).join('');
-      let trend = '<span class="hint">—</span>';
-      if (occ.length >= 2) {
-        const diff = occ[occ.length-1].vol - occ[occ.length-2].vol;
-        const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '—');
-        const color = diff > 0 ? 'var(--good)' : (diff < 0 ? 'var(--bad)' : 'var(--text-muted)');
-        trend = `<span style="color:${color};font-weight:700;">${arrow} ${diff>0?'+':''}${diff} kg</span>`;
-      }
-      return `<tr><td>${escapeHtml(name)}</td><td>${chips}</td><td>${trend}</td></tr>`;
-    }).join('')}
-  `;
-}
-
-function renderTrainingList(sets){
   const exList = document.getElementById('exList');
   if (sets.length === 0) {
     exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
-    return;
+  } else {
+    exList.innerHTML = sets.slice().reverse().map(s => `
+      <div class="exercise-row">
+        <strong>${s['Data']} — ${escapeHtml(s['Nazwa ćwiczenia']||'')}</strong><br>
+        ${s['Liczba serii']||'-'}x${s['Powtórzenia']||'-'} @ ${s['Ciężar (kg)']||'-'}kg
+        ${s['Objętość kg (auto)'] ? '(objętość: '+s['Objętość kg (auto)']+' kg)' : ''}
+        ${s['Wideo z wykonania ćwiczenia'] ? '<br><a href="'+s['Wideo z wykonania ćwiczenia']+'" target="_blank">▶ zobacz wideo</a>' : ''}
+        ${s['Opis / pytanie do trenera'] ? '<div class="note-flag">💬 '+escapeHtml(s['Opis / pytanie do trenera'])+'</div>' : ''}
+      </div>
+    `).join('');
   }
-  const byDate = {};
-  sets.forEach(s => { (byDate[s.logged_at] = byDate[s.logged_at] || []).push(s); });
-  const dates = Object.keys(byDate).sort().reverse();
-  exList.innerHTML = dates.map((d, idx) => {
-    const rows = byDate[d];
-    const totalVol = rows.reduce((sum, s) => sum + volumeOf(s), 0);
-    const flagged = rows.filter(s => s.note).length;
-    return `
-      <div class="training-row" onclick="toggleTraining(${idx})">
-        <div class="hi-info">
-          <strong>${d}</strong>
-          <div class="hint">${rows.length} ćwiczeń · objętość: ${totalVol} kg${flagged ? ' · 💬 ' + flagged + ' z pytaniem' : ''}</div>
-        </div>
-        <span class="chev" id="chev-${idx}">▾</span>
-      </div>
-      <div class="training-detail" id="detail-${idx}" style="display:none;">
-        ${rows.map(s => `
-          <div class="exercise-row">
-            <strong>${escapeHtml(s.exercise_name||'')}</strong><br>
-            ${formatExerciseDetails(s)}
-            ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
-            ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
-          </div>
-        `).join('')}
-      </div>
-    `;
-  }).join('');
-}
 
-function toggleTraining(idx){
-  const detail = document.getElementById('detail-' + idx);
-  const chev = document.getElementById('chev-' + idx);
-  const open = detail.style.display !== 'none';
-  detail.style.display = open ? 'none' : 'block';
-  chev.textContent = open ? '▾' : '▴';
-}
-
-function photoThumbs(m){
-  const shots = [['przód', m.photo_front_url], ['tył', m.photo_back_url], ['bok', m.photo_side_url]];
-  const present = shots.filter(([,url]) => url);
-  if (present.length === 0) return '<span class="hint">—</span>';
-  return present.map(([label, url]) => `<a href="${url}" target="_blank" title="${label}"><img src="${url}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;margin-right:4px;border:1px solid var(--border);"></a>`).join('');
+  const tbl = document.getElementById('historyTable');
+  tbl.innerHTML = `
+    <tr><th>Data</th><th>Waga</th><th>BMI</th><th>Talia</th><th>Biodro</th></tr>
+    ${meas.slice().reverse().map(m => `
+      <tr><td>${m['Data pomiaru']||''}</td><td>${m['Masa ciała (kg)']||''}</td><td>${m['BMI (auto)']?Number(m['BMI (auto)']).toFixed(1):''}</td><td>${m['Talia — pępek (cm)']||''}</td><td>${m['Biodro (cm)']||''}</td></tr>
+    `).join('')}
+  `;
 }
 
 function stat(label, value, delta){
@@ -323,20 +177,6 @@ function stat(label, value, delta){
 }
 
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function formatExerciseDetails(s){
-  if (s.duration_min !== null && s.duration_min !== undefined) {
-    let txt = 'Czas: ' + s.duration_min + ' min';
-    if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
-    if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
-    return txt;
-  }
-  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
-    const parts = s.sets_detail.map(st => (st.reps??'-')+'x'+(st.weight_kg??'-')+'kg');
-    return parts.join(', ') + ' (objętość: ' + volumeOf(s) + ' kg)';
-  }
-  return (s.sets||'-')+'x'+(s.reps||'-')+' @ '+(s.weight_kg||'-')+'kg (objętość: '+volumeOf(s)+' kg)';
-}
 </script>
 </body>
 </html>
