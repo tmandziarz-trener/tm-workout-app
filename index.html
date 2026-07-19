@@ -21,11 +21,27 @@
     <h2>Witaj 👋</h2>
     <div class="sub">Zanim zaczniemy, powiedz mi kim jesteś.</div>
 
-    <div class="field">
-      <label>Jestem już klientem — podaj telefon albo e-mail z rejestracji</label>
-      <input type="text" id="lookup-value" placeholder="np. 600123456 albo twój@email.pl">
+    <div id="login-form">
+      <div class="field">
+        <label>Jestem już klientem — telefon albo e-mail z rejestracji</label>
+        <input type="text" id="lookup-value" placeholder="np. 600123456 albo twój@email.pl">
+      </div>
+      <div class="field">
+        <label>Hasło</label>
+        <input type="password" id="lookup-password" placeholder="Twoje hasło" onkeydown="if(event.key==='Enter')findExisting()">
+      </div>
+      <button class="btn" onclick="findExisting()" id="btn-find">Zaloguj się</button>
+      <div class="hint" id="loginHint"></div>
     </div>
-    <button class="btn" onclick="findExisting()" id="btn-find">Znajdź mnie</button>
+
+    <!-- Konto założone przed wprowadzeniem haseł — trzeba je ustawić przy pierwszym logowaniu -->
+    <div id="set-password-form" style="display:none;margin-top:14px;">
+      <div class="sub">To Twoje pierwsze logowanie od wprowadzenia haseł — ustaw hasło do swojego konta.</div>
+      <div class="field"><label>Nowe hasło</label><input type="password" id="sp_password" placeholder="min. 4 znaki"></div>
+      <div class="field"><label>Powtórz hasło</label><input type="password" id="sp_password2"></div>
+      <button class="btn" onclick="setInitialPassword()" id="btn-set-password">Ustaw hasło i wejdź</button>
+      <div class="hint" id="setPasswordHint"></div>
+    </div>
 
     <div class="spacer"></div>
     <div class="center"><span class="hint">albo</span></div>
@@ -42,7 +58,8 @@
       <div class="field"><label>Telefon</label><input type="text" id="nc_phone"></div>
       <div class="field"><label>E-mail</label><input type="email" id="nc_email"></div>
       <div class="hint">Podaj przynajmniej telefon albo e-mail — będziesz się nim logować przy następnej wizycie.</div>
-      <button class="btn" style="margin-top:10px;" onclick="registerNew()">Zarejestruj mnie</button>
+      <div class="field"><label>Ustaw hasło</label><input type="password" id="nc_password" placeholder="min. 4 znaki"></div>
+      <button class="btn" style="margin-top:10px;" onclick="registerNew()" id="btn-register">Zarejestruj mnie</button>
     </div>
   </div>
 
@@ -177,24 +194,75 @@ if (savedId && savedName) {
   enterMain(savedId, savedName);
 }
 
-// Uwaga: nie wczytujemy tu listy wszystkich klientów — każdy klient wyszukuje
-// tylko własne konto po telefonie/e-mailu, żeby nie widzieć danych innych osób.
+// Logowanie idzie przez serwerową funkcję (api/client-login.js) — hasło jest sprawdzane
+// po stronie serwera, przeglądarka nigdy nie widzi hasha zapisanego w bazie.
+let pendingClient = null; // { id, name } — konto bez hasła, czeka na jego ustawienie
+
 async function findExisting(){
   const val = document.getElementById('lookup-value').value.trim();
+  const password = document.getElementById('lookup-password').value;
+  const hint = document.getElementById('loginHint');
+  hint.textContent = '';
   if (!val) { showToast('Wpisz swój numer telefonu albo e-mail, który podałeś przy rejestracji.'); return; }
+  if (!password) { showToast('Wpisz hasło.'); return; }
+
   const btn = document.getElementById('btn-find');
   btn.disabled = true;
-  const { data, error } = await sb.from('clients').select('id,name').or(`phone.eq.${val},email.eq.${val}`).limit(1);
-  btn.disabled = false;
-  if (error) { showToast('Błąd wyszukiwania: ' + error.message); return; }
-  if (!data || data.length === 0) {
-    showToast('Nie znaleziono konta z tymi danymi. Sprawdź, czy wpisujesz to samo co przy rejestracji, albo zarejestruj się jako nowy klient.');
-    return;
+  try {
+    const res = await fetch('/api/client-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val, password }),
+    });
+    const data = await res.json();
+
+    if (data.needsPassword) {
+      pendingClient = { id: data.id, name: data.name };
+      document.getElementById('login-form').style.display = 'none';
+      document.getElementById('set-password-form').style.display = 'block';
+      return;
+    }
+    if (!data.ok) {
+      hint.textContent = data.error || 'Błąd logowania.';
+      return;
+    }
+    localStorage.setItem('tmw_client_id', data.id);
+    localStorage.setItem('tmw_client_name', data.name);
+    enterMain(data.id, data.name);
+  } catch (err) {
+    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
+  } finally {
+    btn.disabled = false;
   }
-  const c = data[0];
-  localStorage.setItem('tmw_client_id', c.id);
-  localStorage.setItem('tmw_client_name', c.name);
-  enterMain(c.id, c.name);
+}
+
+async function setInitialPassword(){
+  const p1 = document.getElementById('sp_password').value;
+  const p2 = document.getElementById('sp_password2').value;
+  const hint = document.getElementById('setPasswordHint');
+  hint.textContent = '';
+  if (!p1 || p1.length < 4) { hint.textContent = 'Hasło musi mieć przynajmniej 4 znaki.'; return; }
+  if (p1 !== p2) { hint.textContent = 'Hasła nie są takie same.'; return; }
+  if (!pendingClient) { hint.textContent = 'Coś poszło nie tak, spróbuj zalogować się od nowa.'; return; }
+
+  const btn = document.getElementById('btn-set-password');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/client-set-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: pendingClient.id, password: p1 }),
+    });
+    const data = await res.json();
+    if (!data.ok) { hint.textContent = data.error || 'Błąd zapisu hasła.'; return; }
+    localStorage.setItem('tmw_client_id', data.id);
+    localStorage.setItem('tmw_client_name', data.name);
+    enterMain(data.id, data.name);
+  } catch (err) {
+    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function toggleNew(){
@@ -207,20 +275,36 @@ async function registerNew(){
   const height = document.getElementById('nc_height').value;
   const phone = document.getElementById('nc_phone').value.trim();
   const email = document.getElementById('nc_email').value.trim();
+  const password = document.getElementById('nc_password').value;
   if (!name || !height) { showToast('Podaj przynajmniej imię i wzrost.'); return; }
   if (!phone && !email) { showToast('Podaj przynajmniej telefon albo e-mail — będzie Ci trzeba do logowania.'); return; }
-  const payload = {
-    name: name,
-    age: document.getElementById('nc_age').value || null,
-    height_cm: height || null,
-    phone: phone || null,
-    email: email || null,
-  };
-  const { data, error } = await sb.from('clients').insert(payload).select('id,name').single();
-  if (error) { showToast('Błąd rejestracji: ' + error.message); return; }
-  localStorage.setItem('tmw_client_id', data.id);
-  localStorage.setItem('tmw_client_name', data.name);
-  enterMain(data.id, data.name);
+  if (!password || password.length < 4) { showToast('Ustaw hasło — przynajmniej 4 znaki.'); return; }
+
+  const btn = document.getElementById('btn-register');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/client-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        age: document.getElementById('nc_age').value || null,
+        height_cm: height,
+        phone: phone || null,
+        email: email || null,
+        password,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { showToast('Błąd rejestracji: ' + data.error); return; }
+    localStorage.setItem('tmw_client_id', data.id);
+    localStorage.setItem('tmw_client_name', data.name);
+    enterMain(data.id, data.name);
+  } catch (err) {
+    showToast('Błąd połączenia z serwerem: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function enterMain(id, name){
