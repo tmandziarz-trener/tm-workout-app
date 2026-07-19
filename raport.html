@@ -168,7 +168,7 @@ function formatExerciseDetails(s){
 
 async function loadReport(){
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('*').eq('id', clientId).single(),
+    sb.from('clients').select('id,name,age,height_cm,phone,email,avatar_url,created_at').eq('id', clientId).single(),
     sb.from('measurements').select('*').eq('client_id', clientId).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', clientId).order('logged_at'),
   ]);
