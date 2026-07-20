@@ -27,6 +27,12 @@
 
   <div id="screen-dash" style="display:none;">
     <div class="card">
+      <h2>Wszyscy klienci</h2>
+      <div class="sub">Kto potrzebuje uwagi — kliknij wiersz, żeby otworzyć klienta.</div>
+      <table class="all-clients-table" id="allClientsTable"><tr><td class="hint">Wczytywanie...</td></tr></table>
+    </div>
+
+    <div class="card">
       <h2>Wybierz klienta</h2>
       <select id="clientSelect" onchange="loadClient()"><option value="">— wybierz —</option></select>
     </div>
@@ -50,6 +56,44 @@
       </div>
       <div class="card center">
         <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
+      </div>
+      <div class="card">
+        <h2>🚩 Uwagi</h2>
+        <div id="flagsBox"></div>
+      </div>
+      <div class="card">
+        <h2>🎯 Cel klienta</h2>
+        <div class="field">
+          <label>Typ celu</label>
+          <select id="goalType" onchange="onGoalTypeChange()">
+            <option value="">— brak celu —</option>
+            <option value="weight">Waga</option>
+            <option value="waist">Talia</option>
+            <option value="other">Inny (opis)</option>
+          </select>
+        </div>
+        <div class="field" id="goalTargetField" style="display:none;">
+          <label>Wartość docelowa</label>
+          <input type="number" step="0.1" id="goalTarget">
+        </div>
+        <div class="field" id="goalNoteField" style="display:none;">
+          <label>Opis celu</label>
+          <textarea id="goalNote" rows="2"></textarea>
+        </div>
+        <button class="btn secondary" onclick="saveGoal()">Zapisz cel</button>
+        <div class="hint" id="goalHint"></div>
+      </div>
+      <div class="card">
+        <h2>Plan treningowy klienta</h2>
+        <div class="sub">Klient zobaczy te ćwiczenia w zakładce "Plan" i będzie mógł je wstawić do treningu jednym kliknięciem.</div>
+        <div id="planItemsList"></div>
+        <div class="plan-editor-row">
+          <input type="text" id="planExName" placeholder="Nazwa ćwiczenia">
+          <input type="number" id="planExSets" placeholder="Serie" style="width:70px;">
+          <input type="number" id="planExReps" placeholder="Powt." style="width:70px;">
+          <input type="number" step="0.5" id="planExWeight" placeholder="Kg" style="width:80px;">
+        </div>
+        <button class="btn ghost ghost" style="width:100%;margin-top:8px;" onclick="addPlanItem()">+ dodaj do planu</button>
       </div>
       <div class="card">
         <div class="stat-row" id="statRow"></div>
@@ -119,6 +163,56 @@ async function loadNames(){
     opt.value = c.id; opt.textContent = c.name;
     sel.appendChild(opt);
   });
+  loadAllClientsOverview(data);
+}
+
+function selectClientFromOverview(id){
+  document.getElementById('clientSelect').value = id;
+  loadClient();
+  document.getElementById('dashContent').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function loadAllClientsOverview(clients){
+  const tbl = document.getElementById('allClientsTable');
+  if (!clients || clients.length === 0) { tbl.innerHTML = '<tr><td class="hint">Brak jeszcze klientów.</td></tr>'; return; }
+
+  const { data: allLogs, error } = await sb.from('exercise_logs').select('client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min');
+  if (error) { tbl.innerHTML = '<tr><td class="hint">Błąd: ' + error.message + '</td></tr>'; return; }
+
+  const today = new Date();
+  const rows = clients.map(c => {
+    const logs = (allLogs || []).filter(l => l.client_id === c.id);
+    const dates = Array.from(new Set(logs.map(l => l.logged_at))).sort();
+    const lastDate = dates.length ? dates[dates.length - 1] : null;
+    const daysSince = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / (1000*60*60*24)) : null;
+    const unresolvedNotes = logs.filter(l => l.note && !l.trainer_reply).length;
+
+    // Trend objętości: suma per dzień (tylko siłowe), ostatnie dwa treningi.
+    const volByDate = {};
+    logs.filter(l => l.duration_min === null || l.duration_min === undefined).forEach(l => {
+      volByDate[l.logged_at] = (volByDate[l.logged_at] || 0) + volumeOf(l);
+    });
+    const volDates = Object.keys(volByDate).sort();
+    let volTrend = null;
+    if (volDates.length >= 2) {
+      const diff = volByDate[volDates[volDates.length-1]] - volByDate[volDates[volDates.length-2]];
+      volTrend = diff < 0 ? 'down' : (diff > 0 ? 'up' : 'flat');
+    }
+
+    return { id: c.id, name: c.name, lastDate, daysSince, unresolvedNotes, volTrend };
+  });
+
+  tbl.innerHTML = `
+    <tr><th>Klient</th><th>Ostatni trening</th><th>Notatki</th><th>Trend objętości</th></tr>
+    ${rows.map(r => `
+      <tr onclick="selectClientFromOverview('${r.id}')">
+        <td><b>${escapeHtml(r.name)}</b></td>
+        <td>${r.lastDate ? r.lastDate + (r.daysSince >= 5 ? ' <span class="badge warn">' + r.daysSince + ' dni temu</span>' : '') : '<span class="badge warn">brak treningów</span>'}</td>
+        <td>${r.unresolvedNotes ? '<span class="badge warn">💬 ' + r.unresolvedNotes + '</span>' : '<span class="badge ok">brak</span>'}</td>
+        <td>${r.volTrend === 'down' ? '<span class="badge warn">▼ spada</span>' : r.volTrend === 'up' ? '<span class="badge ok">▲ rośnie</span>' : '<span class="hint">—</span>'}</td>
+      </tr>
+    `).join('')}
+  `;
 }
 
 function openReport(){
@@ -127,18 +221,161 @@ function openReport(){
   window.open('raport.html?client=' + encodeURIComponent(id), '_blank');
 }
 
+let currentClientId = null;
+
 async function loadClient(){
   const id = document.getElementById('clientSelect').value;
+  currentClientId = id || null;
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('name,height_cm,avatar_url').eq('id', id).single(),
+    sb.from('clients').select('name,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
   ]);
   if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
   renderProfile(client, meas || []);
   renderDash(meas || [], sets || []);
+  loadGoalIntoEditor(client);
+  loadPlanItems(id);
+  renderFlags(meas || [], sets || []);
+}
+
+// ---------- CEL KLIENTA ----------
+function onGoalTypeChange(){
+  const t = document.getElementById('goalType').value;
+  document.getElementById('goalTargetField').style.display = (t === 'weight' || t === 'waist') ? 'block' : 'none';
+  document.getElementById('goalNoteField').style.display = (t === 'other') ? 'block' : 'none';
+}
+
+function loadGoalIntoEditor(client){
+  document.getElementById('goalType').value = client.goal_type || '';
+  document.getElementById('goalTarget').value = client.goal_target ?? '';
+  document.getElementById('goalNote').value = client.goal_note || '';
+  onGoalTypeChange();
+}
+
+async function saveGoal(){
+  const id = currentClientId;
+  if (!id) return;
+  const goalType = document.getElementById('goalType').value;
+  const hint = document.getElementById('goalHint');
+  hint.textContent = '';
+
+  const payload = { goal_type: goalType || null, goal_set_at: goalType ? todayStrTrener() : null };
+  if (goalType === 'weight' || goalType === 'waist') {
+    payload.goal_target = document.getElementById('goalTarget').value || null;
+    payload.goal_note = null;
+    const { data: lastMeas } = await sb.from('measurements').select('weight_kg,waist_cm').eq('client_id', id).order('measured_at', { ascending: false }).limit(1);
+    const current = lastMeas && lastMeas[0] ? (goalType === 'weight' ? lastMeas[0].weight_kg : lastMeas[0].waist_cm) : null;
+    payload.goal_start_value = current;
+  } else if (goalType === 'other') {
+    payload.goal_note = document.getElementById('goalNote').value || null;
+    payload.goal_target = null;
+    payload.goal_start_value = null;
+  } else {
+    payload.goal_target = null;
+    payload.goal_start_value = null;
+    payload.goal_note = null;
+  }
+
+  const { error } = await sb.from('clients').update(payload).eq('id', id);
+  if (error) { hint.textContent = 'Błąd zapisu: ' + error.message; return; }
+  hint.textContent = '✅ Cel zapisany.';
+}
+
+function todayStrTrener(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// ---------- PLAN TRENINGOWY ----------
+async function loadPlanItems(clientId){
+  const list = document.getElementById('planItemsList');
+  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  if (error) { list.innerHTML = '<div class="hint">Błąd: ' + error.message + '</div>'; return; }
+  if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Brak jeszcze pozycji w planie.</div>'; return; }
+  list.innerHTML = data.map(item => `
+    <div class="plan-item">
+      <div class="hi-info">
+        <strong>${escapeHtml(item.exercise_name)}</strong>
+        <div class="hint">${item.target_sets ?? '-'} serie × ${item.target_reps ?? '-'} powt. @ ${item.target_weight_kg ?? '-'} kg</div>
+      </div>
+      <button class="btn danger" onclick="removePlanItem('${item.id}')">Usuń</button>
+    </div>
+  `).join('');
+}
+
+async function addPlanItem(){
+  const id = currentClientId;
+  if (!id) return;
+  const name = document.getElementById('planExName').value.trim();
+  if (!name) { alert('Podaj nazwę ćwiczenia.'); return; }
+  const payload = {
+    client_id: id,
+    exercise_name: name,
+    target_sets: document.getElementById('planExSets').value || null,
+    target_reps: document.getElementById('planExReps').value || null,
+    target_weight_kg: document.getElementById('planExWeight').value || null,
+  };
+  const { error } = await sb.from('training_plan_items').insert(payload);
+  if (error) { alert('Błąd zapisu: ' + error.message); return; }
+  document.getElementById('planExName').value = '';
+  document.getElementById('planExSets').value = '';
+  document.getElementById('planExReps').value = '';
+  document.getElementById('planExWeight').value = '';
+  loadPlanItems(id);
+}
+
+async function removePlanItem(itemId){
+  const { error } = await sb.from('training_plan_items').delete().eq('id', itemId);
+  if (error) { alert('Błąd usuwania: ' + error.message); return; }
+  loadPlanItems(currentClientId);
+}
+
+// ---------- FLAGI OSTRZEGAWCZE ----------
+function renderFlags(meas, sets){
+  const box = document.getElementById('flagsBox');
+  const flags = [];
+  const today = new Date();
+
+  const dates = Array.from(new Set(sets.map(s => s.logged_at))).sort();
+  if (dates.length === 0) {
+    flags.push({ ok: false, text: 'Klient nie zalogował jeszcze żadnego treningu.' });
+  } else {
+    const lastDate = dates[dates.length - 1];
+    const daysSince = Math.floor((today - new Date(lastDate + 'T00:00:00')) / (1000*60*60*24));
+    if (daysSince >= 5) flags.push({ ok: false, text: 'Klient nie logował treningu od ' + daysSince + ' dni (ostatni: ' + lastDate + ').' });
+  }
+
+  if (meas.length === 0) {
+    flags.push({ ok: false, text: 'Klient nie wykonał jeszcze żadnego pomiaru tygodniowego.' });
+  } else {
+    const lastMeasDate = meas[meas.length - 1].measured_at;
+    const daysSinceMeas = Math.floor((today - new Date(lastMeasDate + 'T00:00:00')) / (1000*60*60*24));
+    if (daysSinceMeas >= 7) flags.push({ ok: false, text: 'Brak pomiaru tygodniowego od ' + daysSinceMeas + ' dni.' });
+  }
+
+  const unresolved = sets.filter(s => s.note && !s.trainer_reply);
+  if (unresolved.length) flags.push({ ok: false, text: unresolved.length + ' pytanie/notatka klienta czeka na odpowiedź.' });
+
+  // Spadek objętości 2 treningi z rzędu, per ćwiczenie.
+  const byExercise = {};
+  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
+    (byExercise[s.exercise_name] = byExercise[s.exercise_name] || []).push({ date: s.logged_at, vol: volumeOf(s) });
+  });
+  const declining = [];
+  Object.keys(byExercise).forEach(name => {
+    const occ = byExercise[name].slice().sort((a,b) => a.date.localeCompare(b.date));
+    if (occ.length >= 3) {
+      const a = occ[occ.length-3].vol, b = occ[occ.length-2].vol, c = occ[occ.length-1].vol;
+      if (c < b && b < a) declining.push(name);
+    }
+  });
+  if (declining.length) flags.push({ ok: false, text: 'Spadek objętości 2 treningi z rzędu na: ' + declining.map(escapeHtml).join(', ') + '.' });
+
+  if (flags.length === 0) flags.push({ ok: true, text: 'Wszystko wygląda dobrze — brak uwag.' });
+  box.innerHTML = flags.map(f => `<div class="flag-item${f.ok ? ' ok' : ''}">${f.ok ? '✅' : '⚠️'} ${f.text}</div>`).join('');
 }
 
 function renderProfile(client, meas){
@@ -306,6 +543,7 @@ function renderTrainingList(sets){
     exList.innerHTML = '<div class="hint">Brak zgłoszonych ćwiczeń.</div>';
     return;
   }
+  const moodEmoji = { 1:'😞', 2:'😕', 3:'😐', 4:'🙂', 5:'💪' };
   const byDate = {};
   sets.forEach(s => { (byDate[s.logged_at] = byDate[s.logged_at] || []).push(s); });
   const dates = Object.keys(byDate).sort().reverse();
@@ -313,10 +551,11 @@ function renderTrainingList(sets){
     const rows = byDate[d];
     const totalVol = rows.reduce((sum, s) => sum + volumeOf(s), 0);
     const flagged = rows.filter(s => s.note).length;
+    const mood = rows.find(s => s.mood_rating)?.mood_rating;
     return `
       <div class="training-row" onclick="toggleTraining(${idx})">
         <div class="hi-info">
-          <strong>${d}</strong>
+          <strong>${d}</strong> ${mood ? moodEmoji[mood] : ''}
           <div class="hint">${rows.length} ćwiczeń · objętość: ${totalVol} kg${flagged ? ' · 💬 ' + flagged + ' z pytaniem' : ''}</div>
         </div>
         <span class="chev" id="chev-${idx}">▾</span>
@@ -327,12 +566,27 @@ function renderTrainingList(sets){
             <strong>${escapeHtml(s.exercise_name||'')}</strong><br>
             ${formatExerciseDetails(s)}
             ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
-            ${s.note ? '<div class="note-flag">💬 '+escapeHtml(s.note)+'</div>' : ''}
+            ${s.note ? `
+              <div class="note-flag">💬 ${escapeHtml(s.note)}</div>
+              ${s.trainer_reply ? '<div class="note-flag" style="border-left-color:var(--good);">🗨️ Twoja odpowiedź: ' + escapeHtml(s.trainer_reply) + '</div>' : ''}
+              <div class="reply-box">
+                <input type="text" id="reply-${s.id}" placeholder="Odpowiedz klientowi..." value="${escapeHtml(s.trainer_reply||'')}">
+                <button class="btn secondary" onclick="saveReply('${s.id}')">Wyślij</button>
+              </div>
+            ` : ''}
           </div>
         `).join('')}
       </div>
     `;
   }).join('');
+}
+
+async function saveReply(exerciseLogId){
+  const input = document.getElementById('reply-' + exerciseLogId);
+  const text = input.value.trim() || null;
+  const { error } = await sb.from('exercise_logs').update({ trainer_reply: text }).eq('id', exerciseLogId);
+  if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
+  loadClient();
 }
 
 function toggleTraining(idx){
