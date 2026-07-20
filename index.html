@@ -83,9 +83,11 @@
           <div class="stat-row weekly-stat-row">
             <div class="stat"><div class="num" id="wtsStrength">0</div><div class="lbl">Siłowe (tydzień)</div></div>
             <div class="stat"><div class="num" id="wtsCardio">0</div><div class="lbl">Cardio (tydzień)</div></div>
+            <div class="stat"><div class="num" id="wtsStreak">0</div><div class="lbl">Passa (tygodnie)</div></div>
           </div>
         </div>
       </div>
+      <div id="goalBox" style="display:none;"></div>
       <div class="spacer"></div>
       <button class="btn secondary" onclick="logout()">To nie ja / zmień</button>
     </div>
@@ -93,7 +95,15 @@
     <div class="tabs">
       <button id="tab-meas" class="active" onclick="showTab('meas')">Pomiar tygodniowy</button>
       <button id="tab-train" onclick="showTab('train')">Log treningu</button>
+      <button id="tab-plan" onclick="showTab('plan')">Plan</button>
       <button id="tab-history" onclick="showTab('history')">Historia</button>
+    </div>
+
+    <!-- ----- POROWNANIE ZDJĘĆ SYLWETKI ----- -->
+    <div id="panel-photo-compare" class="card" style="display:none;">
+      <h2>Twój progres na zdjęciach</h2>
+      <div class="sub">Pierwsze i najnowsze zdjęcie sylwetki, jedno pod drugim — Twój przed/po.</div>
+      <div id="photoCompareBox"></div>
     </div>
 
     <!-- ----- POMIAR TYGODNIOWY ----- -->
@@ -136,6 +146,17 @@
         <input type="number" id="restSeconds" min="15" max="600" step="5" value="120" oninput="onRestSecondsChange()">
         <div class="hint">Stoper ⏱ przy każdej serii odliczy tyle czasu. Ustawienie zapamiętuje się na następny raz.</div>
       </div>
+      <div class="field">
+        <label>Jak się czułeś na tym treningu?</label>
+        <div class="mood-picker" id="moodPicker">
+          <button type="button" class="mood-btn" data-mood="1" onclick="selectMood(1)">😞</button>
+          <button type="button" class="mood-btn" data-mood="2" onclick="selectMood(2)">😕</button>
+          <button type="button" class="mood-btn" data-mood="3" onclick="selectMood(3)">😐</button>
+          <button type="button" class="mood-btn" data-mood="4" onclick="selectMood(4)">🙂</button>
+          <button type="button" class="mood-btn" data-mood="5" onclick="selectMood(5)">💪</button>
+        </div>
+        <div class="hint">Opcjonalne — trener to widzi i szybciej zareaguje, jeśli coś nie idzie dobrze.</div>
+      </div>
       <div id="exerciseRows"></div>
       <button class="btn ghost" style="width:100%;margin-bottom:14px;" onclick="addExerciseRow()">+ dodaj ćwiczenie</button>
       <div class="stat" style="margin-bottom:14px;">
@@ -146,6 +167,13 @@
       <button class="btn secondary" id="btn-cancel-edit" style="display:none;margin-top:10px;width:100%;" onclick="cancelEditWorkout()">Anuluj edycję</button>
       <div class="progress" id="uploadProgress"></div>
       <div class="hint" id="lastWorkoutSent" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- ----- PLAN TRENINGOWY ----- -->
+    <div id="panel-plan" class="card" style="display:none;">
+      <h2>Twój plan treningowy</h2>
+      <div class="sub">Plan przygotowany przez trenera. Kliknij "Wstaw do treningu", żeby dodać ćwiczenie z celami do dzisiejszego logu.</div>
+      <div id="planList"></div>
     </div>
 
     <!-- ----- HISTORIA TRENINGÓW ----- -->
@@ -321,6 +349,9 @@ function enterMain(id, name){
   loadProfileSummary(id);
   checkWeeklyReport(id);
   loadWeeklyTrainingCount(id);
+  loadStreak(id);
+  loadGoal(id);
+  loadPhotoComparison(id);
 }
 
 // ---------- PROFIL: awatar, waga, wzrost ----------
@@ -414,6 +445,161 @@ async function loadWeeklyTrainingCount(clientId){
   elCardio.textContent = cardioCount;
 }
 
+// ---------- STREAK (PASSA TRENINGOWA) ----------
+function isoWeekMonday(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  const diffToMonday = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diffToMonday);
+  return fmtDateLocal(d);
+}
+
+async function loadStreak(clientId){
+  const el = document.getElementById('wtsStreak');
+  if (!el) return;
+  const { data, error } = await sb.from('exercise_logs').select('logged_at').eq('client_id', clientId);
+  if (error) return;
+
+  const distinctDates = Array.from(new Set((data || []).map(r => r.logged_at)));
+  const weekCounts = {};
+  distinctDates.forEach(d => {
+    const wk = isoWeekMonday(d);
+    weekCounts[wk] = (weekCounts[wk] || 0) + 1;
+  });
+
+  const { from: currentWeekStart } = getCurrentWeekRange();
+  const today = todayStr();
+  const currentWeekDone = (weekCounts[currentWeekStart] || 0) >= 2;
+
+  // Jeśli obecny tydzień jeszcze się nie skończył i nie ma jeszcze 2 treningów,
+  // nie liczymy go jako "zerwany" — po prostu jeszcze trwa. Zaczynamy liczenie
+  // passy od obecnego tygodnia jeśli już spełnia warunek, inaczej od poprzedniego.
+  let cursor = new Date(currentWeekStart + 'T00:00:00');
+  if (!currentWeekDone) cursor.setDate(cursor.getDate() - 7);
+
+  let streak = 0;
+  for (let i = 0; i < 104; i++) {
+    const wk = fmtDateLocal(cursor);
+    if ((weekCounts[wk] || 0) >= 2) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 7);
+    } else {
+      break;
+    }
+  }
+  el.textContent = streak;
+}
+
+// ---------- CEL KLIENTA ----------
+async function loadGoal(clientId){
+  const box = document.getElementById('goalBox');
+  if (!box) return;
+  const [{ data: client, error: e1 }, { data: meas, error: e2 }] = await Promise.all([
+    sb.from('clients').select('goal_type,goal_target,goal_start_value,goal_note').eq('id', clientId).single(),
+    sb.from('measurements').select('weight_kg,waist_cm,measured_at').eq('client_id', clientId).order('measured_at', { ascending: false }).limit(1),
+  ]);
+  if (e1 || e2 || !client || !client.goal_type) { box.style.display = 'none'; return; }
+
+  const current = client.goal_type === 'weight' ? (meas && meas[0] ? meas[0].weight_kg : null)
+    : client.goal_type === 'waist' ? (meas && meas[0] ? meas[0].waist_cm : null)
+    : null;
+
+  let html = '<div class="card goal-card"><h2>🎯 Twój cel</h2>';
+  if (client.goal_type === 'other') {
+    html += '<div class="sub">' + escapeHtmlLocal(client.goal_note || '') + '</div>';
+  } else if (current !== null && client.goal_target !== null && client.goal_start_value !== null) {
+    const unit = client.goal_type === 'weight' ? 'kg' : 'cm';
+    const label = client.goal_type === 'weight' ? 'Waga' : 'Talia';
+    const start = Number(client.goal_start_value), target = Number(client.goal_target), now = Number(current);
+    const totalDist = Math.abs(target - start);
+    const doneDist = totalDist === 0 ? 1 : Math.max(0, Math.min(1, Math.abs(now - start) / totalDist));
+    const pct = Math.round(doneDist * 100);
+    const reached = (target >= start && now >= target) || (target <= start && now <= target);
+    html += `
+      <div class="sub">${label}: start ${start}${unit} → cel ${target}${unit} · teraz: <b>${now}${unit}</b></div>
+      <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%;"></div></div>
+      <div class="hint">${reached ? '🎉 Cel osiągnięty!' : pct + '% drogi do celu'}</div>
+    `;
+  } else {
+    box.style.display = 'none';
+    return;
+  }
+  html += '</div>';
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+// ---------- POROWNANIE ZDJĘĆ SYLWETKI ----------
+async function loadPhotoComparison(clientId){
+  const box = document.getElementById('photoCompareBox');
+  const panel = document.getElementById('panel-photo-compare');
+  if (!box) return;
+  const { data, error } = await sb.from('measurements')
+    .select('measured_at,photo_front_url,photo_back_url,photo_side_url')
+    .eq('client_id', clientId).order('measured_at', { ascending: true });
+  if (error || !data) { box.innerHTML = ''; return; }
+
+  const withPhotos = data.filter(m => m.photo_front_url || m.photo_back_url || m.photo_side_url);
+  if (withPhotos.length < 2) { box.innerHTML = ''; return; }
+
+  const first = withPhotos[0];
+  const last = withPhotos[withPhotos.length - 1];
+  const row = (label, m) => `
+    <div class="photo-compare-col">
+      <div class="hint" style="margin-bottom:6px;"><b>${label}</b><br>${m.measured_at}</div>
+      ${[['przód', m.photo_front_url], ['tył', m.photo_back_url], ['bok', m.photo_side_url]]
+        .filter(([,u]) => u).map(([lbl,u]) => `<a href="${u}" target="_blank"><img src="${u}" class="photo-compare-img" title="${lbl}"></a>`).join('')}
+    </div>
+  `;
+  box.innerHTML = '<div class="photo-compare-row">' + row('Pierwsze', first) + row('Najnowsze', last) + '</div>';
+  if (panel && document.getElementById('panel-meas').style.display !== 'none') panel.style.display = 'block';
+}
+
+// ---------- PLAN TRENINGOWY ----------
+async function loadPlan(){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const list = document.getElementById('planList');
+  if (!list) return;
+  list.innerHTML = '<div class="hint">Wczytywanie...</div>';
+  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  if (!data || data.length === 0) {
+    list.innerHTML = '<div class="hint">Trener nie przypisał Ci jeszcze planu treningowego.</div>';
+    return;
+  }
+  list.innerHTML = data.map(item => `
+    <div class="plan-item">
+      <div class="hi-info">
+        <strong>${escapeHtmlLocal(item.exercise_name)}</strong>
+        <div class="hint">${item.target_sets ?? '-'} serie × ${item.target_reps ?? '-'} powt. @ ${item.target_weight_kg ?? '-'} kg</div>
+      </div>
+      <button class="btn secondary" onclick='insertPlanItem(${JSON.stringify(item).replace(/'/g,"&#39;")})'>Wstaw do treningu</button>
+    </div>
+  `).join('');
+}
+
+function insertPlanItem(item){
+  showTab('train');
+  document.getElementById('tab-plan').classList.remove('active');
+  document.getElementById('tab-train').classList.add('active');
+  addExerciseRow({
+    exercise_name: item.exercise_name,
+    sets: item.target_sets || 3,
+    reps: item.target_reps || 10,
+    weight_kg: item.target_weight_kg || 20,
+  });
+  showToast('Dodano "' + item.exercise_name + '" z planu — ustaw datę i zapisz trening.');
+}
+
+// ---------- SAMOPOCZUCIE ----------
+let selectedMood = null;
+function selectMood(v){
+  selectedMood = (selectedMood === v) ? null : v;
+  document.querySelectorAll('.mood-btn').forEach(b => {
+    b.classList.toggle('selected', Number(b.dataset.mood) === selectedMood);
+  });
+}
+
 // ---------- PRZYPOMNIENIE O RAPORCIE TYGODNIOWYM ----------
 async function checkWeeklyReport(clientId){
   const banner = document.getElementById('reportWarning');
@@ -458,11 +644,15 @@ function logout(){
 function showTab(which){
   document.getElementById('tab-meas').classList.toggle('active', which==='meas');
   document.getElementById('tab-train').classList.toggle('active', which==='train');
+  document.getElementById('tab-plan').classList.toggle('active', which==='plan');
   document.getElementById('tab-history').classList.toggle('active', which==='history');
   document.getElementById('panel-meas').style.display = which==='meas' ? 'block' : 'none';
+  document.getElementById('panel-photo-compare').style.display = which==='meas' ? (document.getElementById('photoCompareBox').innerHTML ? 'block' : 'none') : 'none';
   document.getElementById('panel-train').style.display = which==='train' ? 'block' : 'none';
+  document.getElementById('panel-plan').style.display = which==='plan' ? 'block' : 'none';
   document.getElementById('panel-history').style.display = which==='history' ? 'block' : 'none';
   if (which === 'history') loadHistory();
+  if (which === 'plan') loadPlan();
 }
 
 // ---------- POMIAR ----------
@@ -833,7 +1023,27 @@ async function saveWorkout(){
   btn.disabled = true;
 
   try {
+    // Rekordy osobiste: sprawdzamy PRZED zapisem, jaki był dotychczasowy najlepszy ciężar
+    // na każdym ćwiczeniu z tego treningu, żeby po zapisie móc pochwalić nowy rekord.
+    const exerciseNames = Array.from(new Set(withData.map(r => getExerciseName(r)).filter(Boolean)));
+    let historicalBest = {};
+    if (exerciseNames.length) {
+      let histQuery = sb.from('exercise_logs').select('exercise_name,weight_kg,sets_detail')
+        .eq('client_id', clientId).in('exercise_name', exerciseNames);
+      if (editingDate) histQuery = histQuery.neq('logged_at', editingDate);
+      const { data: histRows } = await histQuery;
+      (histRows || []).forEach(r => {
+        let best = null;
+        if (Array.isArray(r.sets_detail)) {
+          r.sets_detail.forEach(s => { if (s && s.weight_kg !== null && s.weight_kg !== undefined) best = Math.max(best ?? -Infinity, s.weight_kg); });
+        }
+        if (r.weight_kg !== null && r.weight_kg !== undefined) best = Math.max(best ?? -Infinity, r.weight_kg);
+        if (best !== null) historicalBest[r.exercise_name] = Math.max(historicalBest[r.exercise_name] ?? -Infinity, best);
+      });
+    }
+
     const entries = [];
+    const newPRs = [];
     for (let i = 0; i < withData.length; i++) {
       const row = withData[i];
       const file = row.querySelector('.ex-video').files[0];
@@ -857,10 +1067,19 @@ async function saveWorkout(){
       // być zaokrąglona, inaczej Postgres odrzuca zapis (np. "11.333..." nie jest integerem).
       const avgReps = (arr) => { const a = avg(arr); return a === null ? null : Math.round(a); };
 
+      const exName = getExerciseName(row);
+      if (!isCardio && setsDetail.length) {
+        const maxWeightNow = setsDetail.reduce((m, s) => (s.weight_kg !== null ? Math.max(m, s.weight_kg) : m), -Infinity);
+        const prevBest = historicalBest[exName];
+        if (maxWeightNow > -Infinity && (prevBest === undefined || maxWeightNow > prevBest)) {
+          newPRs.push({ exercise_name: exName, weight_kg: maxWeightNow });
+        }
+      }
+
       entries.push({
         client_id: clientId,
         logged_at: date,
-        exercise_name: getExerciseName(row),
+        exercise_name: exName,
         sets: isCardio ? null : (setsDetail.length || null),
         reps: isCardio ? null : avgReps(setsDetail.map(s=>s.reps).filter(v=>v!==null)),
         weight_kg: isCardio ? null : avg(setsDetail.map(s=>s.weight_kg).filter(v=>v!==null)),
@@ -870,6 +1089,7 @@ async function saveWorkout(){
         incline_level: (isCardio && inclineVisible) ? (row.querySelector('.ex-incline').value || null) : null,
         video_url: videoUrl,
         note: row.querySelector('.ex-note').value || null,
+        mood_rating: selectedMood,
       });
     }
 
@@ -884,11 +1104,16 @@ async function saveWorkout(){
     const { error } = await sb.from('exercise_logs').insert(entries);
     if (error) throw error;
 
-    showToast(editingDate ? 'Zmiany zapisane!' : ('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!'));
+    if (newPRs.length) {
+      showToast('🏆 Nowy rekord! ' + newPRs.map(p => p.exercise_name + ': ' + p.weight_kg + ' kg').join(', '));
+    } else {
+      showToast(editingDate ? 'Zmiany zapisane!' : ('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!'));
+    }
     markSent('workout', clientId);
     cancelEditWorkout();
     loadHistory();
     loadWeeklyTrainingCount(clientId);
+    loadStreak(clientId);
   } catch (err) {
     showToast('Błąd zapisu: ' + err.message);
   } finally {
@@ -918,14 +1143,18 @@ async function loadHistory(){
     return;
   }
 
+  const moodEmoji = { 1:'😞', 2:'😕', 3:'😐', 4:'🙂', 5:'💪' };
   list.innerHTML = dates.map(d => {
     const rows = byDate[d];
     const names = rows.map(r => escapeHtmlLocal(r.exercise_name)).join(', ');
+    const mood = rows.find(r => r.mood_rating)?.mood_rating;
+    const replies = rows.filter(r => r.trainer_reply);
     return `
       <div class="history-item">
         <div class="hi-info">
-          <strong>${d}</strong>
+          <strong>${d}</strong> ${mood ? moodEmoji[mood] : ''}
           <div class="hint">${rows.length} ćwiczeń: ${names}</div>
+          ${replies.map(r => `<div class="note-flag">🗨️ Trener: ${escapeHtmlLocal(r.trainer_reply)} <span class="hint">(${escapeHtmlLocal(r.exercise_name)})</span></div>`).join('')}
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
@@ -978,6 +1207,8 @@ function cancelEditWorkout(){
   document.getElementById('btn-cancel-edit').style.display = 'none';
   document.getElementById('t_date').value = todayStr();
   document.getElementById('exerciseRows').innerHTML = '';
+  selectedMood = null;
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
   addExerciseRow();
   addExerciseRow();
 }
