@@ -108,8 +108,8 @@
 
     <!-- ----- POMIAR TYGODNIOWY ----- -->
     <div id="panel-meas" class="card">
-      <h2>Cotygodniowy pomiar</h2>
-      <div class="sub">Wypełnij raz w tygodniu, najlepiej tego samego dnia.</div>
+      <h2 id="measHeading">Cotygodniowy pomiar</h2>
+      <div class="sub" id="measSub">Wypełnij raz w tygodniu, najlepiej tego samego dnia.</div>
       <div class="field"><label>Data pomiaru</label><input type="date" id="m_date"></div>
       <div class="field"><label>Masa ciała (kg)</label><input type="number" step="0.1" id="m_weight"></div>
       <div class="grid2">
@@ -132,8 +132,14 @@
       <div class="field"><label>Zdjęcie — bokiem</label><input type="file" id="m_photo_side" accept="image/*"></div>
 
       <button class="btn" id="btn-save-meas" onclick="saveMeasurement()">Zapisz pomiar</button>
+      <button class="btn secondary" id="btn-cancel-edit-meas" style="display:none;margin-top:10px;width:100%;" onclick="cancelEditMeasurement()">Anuluj edycję</button>
       <div class="progress" id="measProgress"></div>
       <div class="hint" id="lastMeasSent" style="margin-top:10px;"></div>
+
+      <div class="spacer"></div>
+      <h2 style="margin-top:10px;">Historia pomiarów</h2>
+      <div class="sub">Kliknij "Edytuj", żeby poprawić dany pomiar.</div>
+      <div id="measHistoryList"></div>
     </div>
 
     <!-- ----- LOG TRENINGU ----- -->
@@ -181,6 +187,11 @@
       <h2>Historia treningów</h2>
       <div class="sub">Twoje zapisane treningi. Kliknij "Edytuj", żeby poprawić dany trening.</div>
       <div id="historyList"></div>
+
+      <div class="spacer"></div>
+      <h2 style="margin-top:10px;">Objętość per ćwiczenie — trening do treningu</h2>
+      <div class="sub">Objętość danego ćwiczenia w każdym treningu osobno — widać, czy rośnie czy spada.</div>
+      <table id="clientExVolTable"></table>
     </div>
 
   </div>
@@ -352,6 +363,7 @@ function enterMain(id, name){
   loadStreak(id);
   loadGoal(id);
   loadPhotoComparison(id);
+  loadMeasHistory(id);
 }
 
 // ---------- PROFIL: awatar, waga, wzrost ----------
@@ -675,6 +687,9 @@ async function uploadPhotoIfAny(inputId, clientId, label){
   return pub.publicUrl;
 }
 
+let editingMeasId = null;
+let editingMeasPhotos = { front: null, back: null, side: null };
+
 async function saveMeasurement(){
   const clientId = localStorage.getItem('tmw_client_id');
   const weight = document.getElementById('m_weight').value;
@@ -701,26 +716,110 @@ async function saveMeasurement(){
       waist_cm: document.getElementById('m_waist').value || null,
       hip_cm: document.getElementById('m_hip').value || null,
       thigh_cm: document.getElementById('m_thigh').value || null,
-      photo_front_url: frontUrl,
-      photo_back_url: backUrl,
-      photo_side_url: sideUrl,
+      // Jeśli edytujesz pomiar i nie wgrywasz nowego zdjęcia, zostaje stare — nie kasujemy go.
+      photo_front_url: frontUrl || (editingMeasId ? editingMeasPhotos.front : null),
+      photo_back_url: backUrl || (editingMeasId ? editingMeasPhotos.back : null),
+      photo_side_url: sideUrl || (editingMeasId ? editingMeasPhotos.side : null),
     };
-    const { error } = await sb.from('measurements').insert(payload);
+
+    let error;
+    if (editingMeasId) {
+      ({ error } = await sb.from('measurements').update(payload).eq('id', editingMeasId));
+    } else {
+      ({ error } = await sb.from('measurements').insert(payload));
+    }
     if (error) throw error;
 
-    showToast('Pomiar zapisany. Dzięki!');
+    showToast(editingMeasId ? 'Pomiar zaktualizowany!' : 'Pomiar zapisany. Dzięki!');
     markSent('meas', clientId);
     checkWeeklyReport(clientId);
     loadProfileSummary(clientId);
-    document.getElementById('m_photo_front').value = '';
-    document.getElementById('m_photo_back').value = '';
-    document.getElementById('m_photo_side').value = '';
+    loadGoal(clientId);
+    loadPhotoComparison(clientId);
+    cancelEditMeasurement();
+    loadMeasHistory(clientId);
   } catch (err) {
     showToast('Błąd zapisu: ' + err.message);
   } finally {
     btn.disabled = false;
     progress.textContent = '';
   }
+}
+
+function cancelEditMeasurement(){
+  editingMeasId = null;
+  editingMeasPhotos = { front: null, back: null, side: null };
+  document.getElementById('measHeading').textContent = 'Cotygodniowy pomiar';
+  document.getElementById('measSub').textContent = 'Wypełnij raz w tygodniu, najlepiej tego samego dnia.';
+  document.getElementById('btn-save-meas').textContent = 'Zapisz pomiar';
+  document.getElementById('btn-cancel-edit-meas').style.display = 'none';
+  document.getElementById('m_date').value = todayStr();
+  ['m_weight','m_arm','m_chest','m_waist','m_hip','m_thigh'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('m_photo_front').value = '';
+  document.getElementById('m_photo_back').value = '';
+  document.getElementById('m_photo_side').value = '';
+}
+
+async function loadMeasHistory(clientId){
+  const list = document.getElementById('measHistoryList');
+  if (!list) return;
+  list.innerHTML = '<div class="hint">Wczytywanie...</div>';
+  const { data, error } = await sb.from('measurements').select('*').eq('client_id', clientId).order('measured_at', { ascending: false });
+  if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Nie masz jeszcze zapisanych pomiarów.</div>'; return; }
+
+  list.innerHTML = data.map(m => `
+    <div class="history-item">
+      <div class="hi-info">
+        <strong>${m.measured_at}</strong>
+        <div class="hint">Waga: ${m.weight_kg ?? '-'} kg${m.waist_cm ? ' · Talia: ' + m.waist_cm + ' cm' : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn secondary" onclick="editMeasurement('${m.id}')">Edytuj</button>
+        <button class="btn danger" onclick="deleteMeasurement('${m.id}')">Usuń</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function editMeasurement(id){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { data, error } = await sb.from('measurements').select('*').eq('id', id).single();
+  if (error || !data) { showToast('Błąd wczytywania pomiaru: ' + (error ? error.message : '')); return; }
+
+  editingMeasId = id;
+  editingMeasPhotos = { front: data.photo_front_url, back: data.photo_back_url, side: data.photo_side_url };
+  document.getElementById('measHeading').textContent = 'Edycja pomiaru — ' + data.measured_at;
+  document.getElementById('measSub').textContent = 'Zmień wartości i kliknij "Zapisz zmiany". Zdjęcia zostaną bez zmian, chyba że wgrasz nowe.';
+  document.getElementById('btn-save-meas').textContent = 'Zapisz zmiany';
+  document.getElementById('btn-cancel-edit-meas').style.display = 'block';
+
+  document.getElementById('m_date').value = data.measured_at;
+  document.getElementById('m_weight').value = data.weight_kg ?? '';
+  document.getElementById('m_arm').value = data.arm_cm ?? '';
+  document.getElementById('m_chest').value = data.chest_cm ?? '';
+  document.getElementById('m_waist').value = data.waist_cm ?? '';
+  document.getElementById('m_hip').value = data.hip_cm ?? '';
+  document.getElementById('m_thigh').value = data.thigh_cm ?? '';
+  document.getElementById('m_photo_front').value = '';
+  document.getElementById('m_photo_back').value = '';
+  document.getElementById('m_photo_side').value = '';
+
+  showTab('meas');
+  document.getElementById('panel-meas').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function deleteMeasurement(id){
+  if (!confirm('Na pewno usunąć ten pomiar? Tej operacji nie można odwrócić.')) return;
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { error } = await sb.from('measurements').delete().eq('id', id);
+  if (error) { showToast('Błąd usuwania: ' + error.message); return; }
+  showToast('Pomiar usunięty.');
+  if (editingMeasId === id) cancelEditMeasurement();
+  loadMeasHistory(clientId);
+  loadProfileSummary(clientId);
+  checkWeeklyReport(clientId);
+  loadPhotoComparison(clientId);
 }
 
 // ---------- LOG TRENINGU ----------
@@ -1141,6 +1240,8 @@ async function loadHistory(){
   const { data, error } = await sb.from('exercise_logs').select('*').eq('client_id', clientId).order('logged_at', { ascending: false });
   if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
 
+  renderExerciseTrendClient(data || []);
+
   const byDate = {};
   (data || []).forEach(row => {
     if (!byDate[row.logged_at]) byDate[row.logged_at] = [];
@@ -1187,6 +1288,52 @@ async function deleteWorkoutDate(date){
 }
 
 function escapeHtmlLocal(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ---------- OBJĘTOŚĆ PER ĆWICZENIE (TRENING DO TRENINGU) ----------
+function numLocal(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
+
+function volumeOfLocal(s){
+  if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
+    return s.sets_detail.reduce((sum, st) => {
+      const r = numLocal(st.reps), w = numLocal(st.weight_kg);
+      return sum + ((r !== null && w !== null) ? r * w : 0);
+    }, 0);
+  }
+  const sets_ = numLocal(s.sets), reps = numLocal(s.reps), w = numLocal(s.weight_kg);
+  if (sets_ === null || reps === null || w === null) return 0;
+  return sets_ * reps * w;
+}
+
+function renderExerciseTrendClient(sets){
+  const tbl = document.getElementById('clientExVolTable');
+  if (!tbl) return;
+  const byExercise = {};
+  sets.filter(s => s.duration_min === null || s.duration_min === undefined).forEach(s => {
+    const key = s.exercise_name || '(bez nazwy)';
+    (byExercise[key] = byExercise[key] || []).push({ date: s.logged_at, vol: volumeOfLocal(s) });
+  });
+  const names = Object.keys(byExercise).sort();
+  if (names.length === 0) {
+    tbl.innerHTML = '<tr><td class="hint">Brak jeszcze danych.</td></tr>';
+    return;
+  }
+  tbl.innerHTML = `
+    <tr><th>Ćwiczenie</th><th>Ostatnie treningi (data: objętość)</th><th>Zmiana</th></tr>
+    ${names.map(name => {
+      const occ = byExercise[name].slice().sort((a,b) => a.date.localeCompare(b.date));
+      const last6 = occ.slice(-6);
+      const chips = last6.map(o => `<span class="trend-chip">${o.date}: <b>${o.vol} kg</b></span>`).join('');
+      let trend = '<span class="hint">—</span>';
+      if (occ.length >= 2) {
+        const diff = occ[occ.length-1].vol - occ[occ.length-2].vol;
+        const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '—');
+        const color = diff > 0 ? 'var(--good)' : (diff < 0 ? 'var(--bad)' : 'var(--text-muted)');
+        trend = `<span style="color:${color};font-weight:700;">${arrow} ${diff>0?'+':''}${diff} kg</span>`;
+      }
+      return `<tr><td>${escapeHtmlLocal(name)}</td><td>${chips}</td><td>${trend}</td></tr>`;
+    }).join('')}
+  `;
+}
 
 async function editWorkoutDate(date){
   const clientId = localStorage.getItem('tmw_client_id');
