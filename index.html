@@ -431,8 +431,13 @@ async function loadWeeklyTrainingCount(clientId){
   const byDate = {};
   (data || []).forEach(r => {
     if (!byDate[r.logged_at]) byDate[r.logged_at] = { cardio: false, strength: false };
-    if (r.duration_min !== null && r.duration_min !== undefined) byDate[r.logged_at].cardio = true;
-    else byDate[r.logged_at].strength = true;
+    if (r.duration_min !== null && r.duration_min !== undefined) {
+      // Cardio liczy się do "Cardio (tydzień)" tylko od pewnego minimalnego czasu —
+      // krótsza rozgrzewka na bieżni nie powinna zaliczać się jako pełny trening cardio.
+      if (Number(r.duration_min) >= MIN_CARDIO_MINUTES_FOR_COUNT) byDate[r.logged_at].cardio = true;
+    } else {
+      byDate[r.logged_at].strength = true;
+    }
   });
 
   let strengthCount = 0, cardioCount = 0;
@@ -759,6 +764,7 @@ function addExerciseRow(prefill){
       <div class="field"><label>Czas (min)</label><input type="number" step="1" class="ex-duration" value="20" oninput="onRowInput(this)"></div>
       <div class="field ex-resistance-wrap" style="display:none;"><label>Obciążenie / poziom oporu</label><input type="number" step="1" class="ex-resistance" value="10" oninput="onRowInput(this)"></div>
       <div class="field ex-incline-wrap" style="display:none;"><label>Poziom wzniesienia</label><input type="number" step="1" class="ex-incline" value="1" oninput="onRowInput(this)"></div>
+      <div class="field ex-distance-wrap" style="display:none;"><label>Dystans (km)</label><input type="number" step="0.1" class="ex-distance" value="5" oninput="onRowInput(this)"></div>
     </div>
     <div class="field" style="margin-top:10px;"><label>Wideo z wykonania (opcjonalnie, max ${MAX_VIDEO_MB}MB)</label><input type="file" class="ex-video" accept="video/*"></div>
     <div class="field"><label>...albo wklej link do wideo (np. z Google Drive/YouTube)</label><input type="text" class="ex-videolink" placeholder="https://..."></div>
@@ -788,6 +794,7 @@ function addExerciseRow(prefill){
       row.querySelector('.ex-duration').value = prefill.duration_min;
       row.querySelector('.ex-resistance').value = prefill.resistance_level ?? '';
       row.querySelector('.ex-incline').value = prefill.incline_level ?? '';
+      row.querySelector('.ex-distance').value = prefill.distance_km ?? '';
     } else if (Array.isArray(prefill.sets_detail) && prefill.sets_detail.length) {
       // Nowy format: każda seria zapisana osobno.
       prefill.sets_detail.forEach(s => addSetRow(row, s.reps, s.weight_kg));
@@ -959,6 +966,7 @@ function updateFieldsVisibility(row){
     const exName = getExerciseName(row);
     row.querySelector('.ex-resistance-wrap').style.display = RESISTANCE_EXERCISES.includes(exName) ? 'block' : 'none';
     row.querySelector('.ex-incline-wrap').style.display = INCLINE_EXERCISES.includes(exName) ? 'block' : 'none';
+    row.querySelector('.ex-distance-wrap').style.display = DISTANCE_EXERCISES.includes(exName) ? 'block' : 'none';
   }
 }
 
@@ -1061,6 +1069,7 @@ async function saveWorkout(){
       const isCardio = row.querySelector('.ex-group').value === CARDIO_GROUP;
       const resistanceVisible = row.querySelector('.ex-resistance-wrap').style.display !== 'none';
       const inclineVisible = row.querySelector('.ex-incline-wrap').style.display !== 'none';
+      const distanceVisible = row.querySelector('.ex-distance-wrap').style.display !== 'none';
       const setsDetail = isCardio ? [] : getSetsDetail(row).filter(s => s.reps !== null || s.weight_kg !== null);
       const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length) : null;
       // "reps" w bazie jest typem integer — średnia z różnych powtórzeń (np. 10,12,12) musi
@@ -1087,6 +1096,7 @@ async function saveWorkout(){
         duration_min: isCardio ? (row.querySelector('.ex-duration').value || null) : null,
         resistance_level: (isCardio && resistanceVisible) ? (row.querySelector('.ex-resistance').value || null) : null,
         incline_level: (isCardio && inclineVisible) ? (row.querySelector('.ex-incline').value || null) : null,
+        distance_km: (isCardio && distanceVisible) ? (row.querySelector('.ex-distance').value || null) : null,
         video_url: videoUrl,
         note: row.querySelector('.ex-note').value || null,
         mood_rating: selectedMood,
