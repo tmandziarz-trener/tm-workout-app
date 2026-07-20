@@ -853,13 +853,16 @@ async function saveWorkout(){
       const inclineVisible = row.querySelector('.ex-incline-wrap').style.display !== 'none';
       const setsDetail = isCardio ? [] : getSetsDetail(row).filter(s => s.reps !== null || s.weight_kg !== null);
       const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+      // "reps" w bazie jest typem integer — średnia z różnych powtórzeń (np. 10,12,12) musi
+      // być zaokrąglona, inaczej Postgres odrzuca zapis (np. "11.333..." nie jest integerem).
+      const avgReps = (arr) => { const a = avg(arr); return a === null ? null : Math.round(a); };
 
       entries.push({
         client_id: clientId,
         logged_at: date,
         exercise_name: getExerciseName(row),
         sets: isCardio ? null : (setsDetail.length || null),
-        reps: isCardio ? null : avg(setsDetail.map(s=>s.reps).filter(v=>v!==null)),
+        reps: isCardio ? null : avgReps(setsDetail.map(s=>s.reps).filter(v=>v!==null)),
         weight_kg: isCardio ? null : avg(setsDetail.map(s=>s.weight_kg).filter(v=>v!==null)),
         sets_detail: isCardio ? null : (setsDetail.length ? setsDetail : null),
         duration_min: isCardio ? (row.querySelector('.ex-duration').value || null) : null,
