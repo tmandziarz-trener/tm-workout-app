@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="exercises.js"></script>
 </head>
 <body>
 
@@ -436,8 +437,11 @@ function renderWeeklyTrainingCount(sets){
   const byDate = {};
   inWeek.forEach(r => {
     if (!byDate[r.logged_at]) byDate[r.logged_at] = { cardio: false, strength: false };
-    if (r.duration_min !== null && r.duration_min !== undefined) byDate[r.logged_at].cardio = true;
-    else byDate[r.logged_at].strength = true;
+    if (r.duration_min !== null && r.duration_min !== undefined) {
+      if (Number(r.duration_min) >= MIN_CARDIO_MINUTES_FOR_COUNT) byDate[r.logged_at].cardio = true;
+    } else {
+      byDate[r.logged_at].strength = true;
+    }
   });
   let strengthCount = 0, cardioCount = 0;
   Object.values(byDate).forEach(v => {
@@ -622,6 +626,7 @@ function formatExerciseDetails(s){
     let txt = 'Czas: ' + s.duration_min + ' min';
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
+    if (s.distance_km !== null && s.distance_km !== undefined) txt += ' · Dystans: ' + s.distance_km + ' km';
     return txt;
   }
   if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
