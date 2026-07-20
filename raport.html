@@ -157,6 +157,7 @@ function formatExerciseDetails(s){
     let txt = 'Czas: ' + s.duration_min + ' min';
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
+    if (s.distance_km !== null && s.distance_km !== undefined) txt += ' · Dystans: ' + s.distance_km + ' km';
     return txt;
   }
   if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
