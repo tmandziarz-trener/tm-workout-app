@@ -85,9 +85,40 @@ canvas{max-height:260px;}
 .profile-stats .pstat{font-size:13px;color:var(--dark);}
 .profile-stats .pstat b{color:var(--accent-dark);}
 
-.weekly-stat-row{margin-top:10px;margin-bottom:0;}
+.weekly-stat-row{margin-top:10px;margin-bottom:0;grid-template-columns:repeat(3,1fr);}
 .weekly-stat-row .stat{padding:8px 10px;}
 .weekly-stat-row .num{font-size:17px;}
+
+.mood-picker{display:flex;gap:8px;}
+.mood-btn{width:auto;flex:1;background:#fafaf9;border:1px solid var(--border);border-radius:9px;font-size:22px;padding:8px 0;cursor:pointer;}
+.mood-btn.selected{background:var(--accent);border-color:var(--accent-dark);}
+
+.goal-card{border-top:3px solid var(--accent);}
+.goal-bar{height:12px;border-radius:6px;background:#eee;overflow:hidden;margin-top:8px;}
+.goal-bar-fill{height:100%;background:var(--good);border-radius:6px;transition:width .3s;}
+
+.photo-compare-row{display:flex;gap:14px;}
+.photo-compare-col{flex:1;text-align:center;}
+.photo-compare-img{width:100%;max-width:140px;border-radius:8px;margin:2px;border:1px solid var(--border);object-fit:cover;aspect-ratio:3/4;}
+
+.plan-item{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:#fafaf9;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+
+.flag-item{border-left:3px solid var(--bad);background:#fdecea;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:8px;}
+.flag-item.ok{border-left-color:var(--good);background:#eef6ee;}
+
+.all-clients-table td{cursor:pointer;}
+.all-clients-table tr:hover td{background:#fafaf9;}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:4px;}
+.badge.warn{background:#fdecea;color:var(--bad);}
+.badge.ok{background:#eef6ee;color:var(--good);}
+
+.reply-box{display:flex;gap:6px;margin-top:6px;}
+.reply-box input{flex:1;}
+.reply-box button{width:auto;padding:8px 12px;font-size:12px;flex-shrink:0;}
+
+.plan-editor-row{display:flex;gap:8px;}
+.plan-editor-row input{flex:2;}
+.plan-editor-row input[type="number"]{flex:1;}
 
 .photo-note{background:#fff8ef;border:1px dashed var(--accent-dark);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--dark);margin-bottom:12px;}
 
