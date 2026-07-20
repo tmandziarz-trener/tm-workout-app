@@ -76,7 +76,9 @@ const MUSCLE_GROUPS = {
     "Rower",
     "Wiosłowanie (erg)",
     "Orbitrek",
-    "Skakanka"
+    "Skakanka",
+    "Bieg na zewnątrz",
+    "Jazda na rowerze na zewnątrz"
   ]
 };
 
@@ -88,3 +90,7 @@ const CUSTOM_OPTION = "__custom__";
 const CARDIO_GROUP = "Cardio";
 const INCLINE_EXERCISES = ["Bieżnia"];
 const RESISTANCE_EXERCISES = ["Orbitrek", "Rower", "Wiosłowanie (erg)"];
+// Ćwiczenia "na zewnątrz" nie mają maszyny, więc pytamy o dystans (km) zamiast oporu/wzniesienia.
+const DISTANCE_EXERCISES = ["Bieg na zewnątrz", "Jazda na rowerze na zewnątrz"];
+// Minimalny czas (min), żeby trening cardio zaliczył się do licznika "Cardio (tydzień)".
+const MIN_CARDIO_MINUTES_FOR_COUNT = 30;
