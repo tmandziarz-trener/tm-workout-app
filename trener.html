@@ -57,6 +57,7 @@
         </div>
       </div>
       <div id="trainerClientReplyBanner" class="alert-banner reply" style="display:none;"></div>
+      <div id="trainerPrBox" style="display:none;"></div>
       <div class="card center">
         <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
       </div>
@@ -323,6 +324,37 @@ async function loadClient(){
   loadPlanItems(id);
   renderFlags(meas || [], sets || []);
   renderTrainerClientBanner();
+  renderTrainerPRs();
+}
+
+// Rekordy życiowe (najwyższy ciężar per ćwiczenie w całej historii) — liczone na bieżąco,
+// bez dodatkowej tabeli w bazie. Ta sama logika co w panelu klienta.
+function computeAllTimePRs(rows){
+  const byExercise = {};
+  (rows || []).filter(r => r.duration_min === null || r.duration_min === undefined).forEach(r => {
+    let maxW = null;
+    if (Array.isArray(r.sets_detail)) {
+      r.sets_detail.forEach(s => { if (s && s.weight_kg !== null && s.weight_kg !== undefined) maxW = Math.max(maxW ?? -Infinity, s.weight_kg); });
+    }
+    if (r.weight_kg !== null && r.weight_kg !== undefined) maxW = Math.max(maxW ?? -Infinity, r.weight_kg);
+    if (maxW === null || maxW === -Infinity) return;
+    const cur = byExercise[r.exercise_name];
+    if (!cur || maxW > cur.weight || (maxW === cur.weight && r.logged_at > cur.date)) {
+      byExercise[r.exercise_name] = { exercise_name: r.exercise_name, weight: maxW, date: r.logged_at };
+    }
+  });
+  return Object.values(byExercise).sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
+}
+
+function renderTrainerPRs(){
+  const box = document.getElementById('trainerPrBox');
+  if (!box) return;
+  const prs = computeAllTimePRs(currentSets);
+  if (!prs.length) { box.style.display = 'none'; return; }
+  box.innerHTML = '<div class="card pr-card"><h2>🏆 Rekordy życiowe klienta</h2>' +
+    prs.map(p => `<div class="pr-item"><span>${escapeHtml(p.exercise_name)}</span><b>${p.weight} kg</b><span class="hint">${p.date}</span></div>`).join('') +
+    '</div>';
+  box.style.display = 'block';
 }
 
 // Baner "nowa wiadomość" dla AKTUALNIE wybranego klienta — liczy nieodpowiedziane
