@@ -71,8 +71,8 @@
     <div class="card">
       <div class="profile-row">
         <div class="avatar-wrap">
-          <img id="avatarImg" class="avatar-img" src="" alt="" style="display:none;">
-          <div id="avatarPlaceholder" class="avatar-placeholder">🙂</div>
+          <img id="avatarImg" class="avatar-img" src="" alt="" style="display:none;" onclick="pulseAvatar()">
+          <div id="avatarPlaceholder" class="avatar-placeholder" onclick="pulseAvatar()">🙂</div>
           <label class="avatar-edit" for="avatarInput">✎</label>
           <input type="file" id="avatarInput" accept="image/*" style="display:none;" onchange="uploadAvatar(this)">
         </div>
@@ -217,6 +217,15 @@ if (savedRestSeconds) document.getElementById('restSeconds').value = savedRestSe
 function todayStr(){
   const d = new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function pulseAvatar(){
+  ['avatarImg','avatarPlaceholder'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('avatar-zoom-pulse');
+    setTimeout(() => el.classList.remove('avatar-zoom-pulse'), 500);
+  });
 }
 
 function showToast(msg){
@@ -1242,6 +1251,15 @@ async function loadHistory(){
 
   renderExerciseTrendClient(data || []);
 
+  // Wątek wymiany wiadomości (klient <-> trener) przy notatce do ćwiczenia — pobieramy
+  // wszystkie dodatkowe wiadomości ponad pierwszą parę note/trainer_reply.
+  const noteIds = (data || []).filter(r => r.note).map(r => r.id);
+  const commentsByLog = {};
+  if (noteIds.length) {
+    const { data: comments } = await sb.from('exercise_log_comments').select('*').in('exercise_log_id', noteIds).order('created_at');
+    (comments || []).forEach(c => { (commentsByLog[c.exercise_log_id] = commentsByLog[c.exercise_log_id] || []).push(c); });
+  }
+
   const byDate = {};
   (data || []).forEach(row => {
     if (!byDate[row.logged_at]) byDate[row.logged_at] = [];
@@ -1255,25 +1273,87 @@ async function loadHistory(){
   }
 
   const moodEmoji = { 1:'😞', 2:'😕', 3:'😐', 4:'🙂', 5:'💪' };
-  list.innerHTML = dates.map(d => {
+  list.innerHTML = dates.map((d, idx) => {
     const rows = byDate[d];
     const names = rows.map(r => escapeHtmlLocal(r.exercise_name)).join(', ');
     const mood = rows.find(r => r.mood_rating)?.mood_rating;
-    const replies = rows.filter(r => r.trainer_reply);
+    const threadCount = rows.filter(r => r.note).length;
     return `
-      <div class="history-item">
+      <div class="training-row" onclick="toggleHistoryDetail(${idx})">
         <div class="hi-info">
           <strong>${d}</strong> ${mood ? moodEmoji[mood] : ''}
-          <div class="hint">${rows.length} ćwiczeń: ${names}</div>
-          ${replies.map(r => `<div class="note-flag">🗨️ Trener: ${escapeHtmlLocal(r.trainer_reply)} <span class="hint">(${escapeHtmlLocal(r.exercise_name)})</span></div>`).join('')}
+          <div class="hint">${rows.length} ćwiczeń: ${names}${threadCount ? ' · 💬 ' + threadCount : ''}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;">
+        <span class="chev" id="hist-chev-${idx}">▾</span>
+      </div>
+      <div class="training-detail" id="hist-detail-${idx}" style="display:none;">
+        ${rows.map(r => `
+          <div class="exercise-row">
+            <strong>${escapeHtmlLocal(r.exercise_name||'')}</strong><br>
+            ${formatHistoryDetails(r)}
+            ${r.video_url ? '<br><a href="'+r.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
+            ${r.note ? renderThread(r, commentsByLog[r.id] || []) : ''}
+          </div>
+        `).join('')}
+        <div style="display:flex;gap:6px;margin-top:12px;">
           <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
           <button class="btn danger" onclick="deleteWorkoutDate('${d}')">Usuń</button>
         </div>
       </div>
     `;
   }).join('');
+}
+
+function toggleHistoryDetail(idx){
+  const detail = document.getElementById('hist-detail-' + idx);
+  const chev = document.getElementById('hist-chev-' + idx);
+  const open = detail.style.display !== 'none';
+  detail.style.display = open ? 'none' : 'block';
+  chev.textContent = open ? '▾' : '▴';
+}
+
+function formatHistoryDetails(r){
+  if (r.duration_min !== null && r.duration_min !== undefined) {
+    let txt = 'Czas: ' + r.duration_min + ' min';
+    if (r.resistance_level !== null && r.resistance_level !== undefined) txt += ' · Obciążenie: ' + r.resistance_level;
+    if (r.incline_level !== null && r.incline_level !== undefined) txt += ' · Wzniesienie: ' + r.incline_level;
+    if (r.distance_km !== null && r.distance_km !== undefined) txt += ' · Dystans: ' + r.distance_km + ' km';
+    return txt;
+  }
+  if (Array.isArray(r.sets_detail) && r.sets_detail.length) {
+    return r.sets_detail.map(s => (s.reps??'-')+'x'+(s.weight_kg??'-')+'kg').join(', ');
+  }
+  return (r.sets||'-')+'x'+(r.reps||'-')+' @ '+(r.weight_kg||'-')+'kg';
+}
+
+// Renderuje całą wymianę wiadomości do notatki jednego ćwiczenia: pytanie klienta,
+// pierwszą odpowiedź trenera (stare kolumny note/trainer_reply), a potem dalszy
+// wątek (exercise_log_comments) + pole do dopisania kolejnej wiadomości.
+function renderThread(r, comments){
+  const parts = [];
+  parts.push('<div class="note-flag">💬 Ty: ' + escapeHtmlLocal(r.note) + '</div>');
+  if (r.trainer_reply) parts.push('<div class="note-flag" style="border-left-color:var(--good);">🗨️ Trener: ' + escapeHtmlLocal(r.trainer_reply) + '</div>');
+  comments.forEach(c => {
+    const label = c.sender === 'trainer' ? '🗨️ Trener' : '💬 Ty';
+    const style = c.sender === 'trainer' ? 'border-left-color:var(--good);' : '';
+    parts.push('<div class="note-flag" style="' + style + '">' + label + ': ' + escapeHtmlLocal(c.message) + '</div>');
+  });
+  parts.push(`
+    <div class="reply-box">
+      <input type="text" id="client-reply-${r.id}" placeholder="Odpowiedz trenerowi...">
+      <button class="btn secondary" onclick="sendClientReply('${r.id}')">Wyślij</button>
+    </div>
+  `);
+  return parts.join('');
+}
+
+async function sendClientReply(exerciseLogId){
+  const input = document.getElementById('client-reply-' + exerciseLogId);
+  const text = input.value.trim();
+  if (!text) return;
+  const { error } = await sb.from('exercise_log_comments').insert({ exercise_log_id: exerciseLogId, sender: 'client', message: text });
+  if (error) { showToast('Błąd wysyłania: ' + error.message); return; }
+  loadHistory();
 }
 
 async function deleteWorkoutDate(date){
