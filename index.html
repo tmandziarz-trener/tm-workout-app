@@ -1342,7 +1342,11 @@ async function checkNewReplies(clientId){
 }
 
 function goToReplies(){
+  // Sama zmiana zakładki nie wystarczy — baner, profil, cel i rekordy są NAD zakładkami,
+  // więc bez przewinięcia ekranu wyglądało to, jakby kliknięcie nic nie robiło.
   showTab('history');
+  const panel = document.getElementById('panel-history');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 let historyDayKeys = {}; // idx dnia -> [klucze odpowiedzi trenera do oznaczenia jako przeczytane]
