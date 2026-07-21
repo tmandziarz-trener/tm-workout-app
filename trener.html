@@ -67,6 +67,7 @@
       </div>
       <div class="card">
         <h2>🎯 Cel klienta</h2>
+        <div id="trainerGoalProgress" style="display:none;margin-bottom:14px;"></div>
         <div class="field">
           <label>Typ celu</label>
           <select id="goalType" onchange="onGoalTypeChange()">
@@ -321,10 +322,49 @@ async function loadClient(){
   renderProfile(client, meas || []);
   renderDash(meas || [], sets || []);
   loadGoalIntoEditor(client);
+  renderGoalProgress(client, meas || []);
   loadPlanItems(id);
   renderFlags(meas || [], sets || []);
   renderTrainerClientBanner();
   renderTrainerPRs();
+}
+
+// Wizualny pasek postępu celu — ten sam sposób liczenia co w panelu klienta,
+// tak żeby trener widział dokładnie to samo, co widzi klient.
+function renderGoalProgress(client, meas){
+  const box = document.getElementById('trainerGoalProgress');
+  if (!box) return;
+  if (!client || !client.goal_type) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  if (client.goal_type === 'other') {
+    box.innerHTML = '<div class="sub">' + escapeHtml(client.goal_note || '') + '</div>';
+    box.style.display = 'block';
+    return;
+  }
+
+  const current = client.goal_type === 'weight' ? (meas.length ? meas[meas.length - 1].weight_kg : null)
+    : client.goal_type === 'waist' ? (meas.length ? meas[meas.length - 1].waist_cm : null)
+    : null;
+
+  if (current === null || client.goal_target === null || client.goal_target === undefined || client.goal_start_value === null || client.goal_start_value === undefined) {
+    box.style.display = 'none'; box.innerHTML = '';
+    return;
+  }
+
+  const unit = client.goal_type === 'weight' ? 'kg' : 'cm';
+  const label = client.goal_type === 'weight' ? 'Waga' : 'Talia';
+  const start = Number(client.goal_start_value), target = Number(client.goal_target), now = Number(current);
+  const totalDist = Math.abs(target - start);
+  const doneDist = totalDist === 0 ? 1 : Math.max(0, Math.min(1, Math.abs(now - start) / totalDist));
+  const pct = Math.round(doneDist * 100);
+  const reached = (target >= start && now >= target) || (target <= start && now <= target);
+
+  box.innerHTML = `
+    <div class="sub">${label}: start ${start}${unit} → cel ${target}${unit} · teraz: <b>${now}${unit}</b></div>
+    <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%;"></div></div>
+    <div class="hint">${reached ? '🎉 Cel osiągnięty!' : pct + '% drogi do celu'}</div>
+  `;
+  box.style.display = 'block';
 }
 
 // Rekordy życiowe (najwyższy ciężar per ćwiczenie w całej historii) — liczone na bieżąco,
@@ -785,12 +825,26 @@ function stat(label, value, delta){
 
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function formatPace(durationMin, distanceKm){
+  const d = parseFloat(durationMin), k = parseFloat(distanceKm);
+  if (!d || !k || d <= 0 || k <= 0) return null;
+  const paceMinPerKm = d / k;
+  let min = Math.floor(paceMinPerKm);
+  let sec = Math.round((paceMinPerKm - min) * 60);
+  if (sec === 60) { min += 1; sec = 0; }
+  return min + ':' + String(sec).padStart(2, '0') + ' min/km';
+}
+
 function formatExerciseDetails(s){
   if (s.duration_min !== null && s.duration_min !== undefined) {
     let txt = 'Czas: ' + s.duration_min + ' min';
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
-    if (s.distance_km !== null && s.distance_km !== undefined) txt += ' · Dystans: ' + s.distance_km + ' km';
+    if (s.distance_km !== null && s.distance_km !== undefined) {
+      txt += ' · Dystans: ' + s.distance_km + ' km';
+      const pace = formatPace(s.duration_min, s.distance_km);
+      if (pace) txt += ' · Tempo: ' + pace;
+    }
     return txt;
   }
   if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
