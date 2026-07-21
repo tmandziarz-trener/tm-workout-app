@@ -27,6 +27,7 @@
   </div>
 
   <div id="screen-dash" style="display:none;">
+    <div id="trainerGlobalReplyBanner" class="alert-banner reply" style="display:none;"></div>
     <div class="card">
       <h2>Wszyscy klienci</h2>
       <div class="sub">Kto potrzebuje uwagi — kliknij wiersz, żeby otworzyć klienta.</div>
@@ -55,6 +56,7 @@
           </div>
         </div>
       </div>
+      <div id="trainerClientReplyBanner" class="alert-banner reply" style="display:none;"></div>
       <div class="card center">
         <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
       </div>
@@ -145,6 +147,21 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeAvatarLightbox();
 });
 
+// ---------- POWIADOMIENIA O NOWYCH WIADOMOŚCIACH OD KLIENTÓW ----------
+// Śledzone lokalnie na tym urządzeniu (localStorage), klucz 'c_<id>' dla każdej
+// wiadomości klienta (exercise_log_comments, sender='client') już przez Ciebie widzianej.
+function getTrainerSeenIds(){
+  try { return new Set(JSON.parse(localStorage.getItem('tmw_trainer_seen_replies') || '[]')); }
+  catch (e) { return new Set(); }
+}
+
+function markTrainerSeen(keys){
+  if (!keys.length) return;
+  const s = getTrainerSeenIds();
+  keys.forEach(k => s.add(k));
+  localStorage.setItem('tmw_trainer_seen_replies', JSON.stringify(Array.from(s)));
+}
+
 async function checkPassword(){
   const pwd = document.getElementById('pwd').value;
   const hint = document.getElementById('lockHint');
@@ -184,6 +201,7 @@ async function loadNames(){
     opt.value = c.id; opt.textContent = c.name;
     sel.appendChild(opt);
   });
+  allClientsCache = data;
   loadAllClientsOverview(data);
 }
 
@@ -197,16 +215,37 @@ async function loadAllClientsOverview(clients){
   const tbl = document.getElementById('allClientsTable');
   if (!clients || clients.length === 0) { tbl.innerHTML = '<tr><td class="hint">Brak jeszcze klientów.</td></tr>'; return; }
 
-  const { data: allLogs, error } = await sb.from('exercise_logs').select('client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min');
+  const { data: allLogs, error } = await sb.from('exercise_logs').select('id,client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min');
   if (error) { tbl.innerHTML = '<tr><td class="hint">Błąd: ' + error.message + '</td></tr>'; return; }
 
+  // Wątek wiadomości — potrzebny do wykrycia nowych odpowiedzi klienta (nie tylko
+  // pierwszej, nieodpowiedzianej notatki, ale też dalszych wiadomości w wątku).
+  const noteIds = (allLogs || []).filter(l => l.note).map(l => l.id);
+  let allComments = [];
+  if (noteIds.length) {
+    const { data: comments } = await sb.from('exercise_log_comments').select('id,exercise_log_id,sender').in('exercise_log_id', noteIds);
+    allComments = comments || [];
+  }
+  const commentsByLog = {};
+  allComments.forEach(c => { (commentsByLog[c.exercise_log_id] = commentsByLog[c.exercise_log_id] || []).push(c); });
+
+  const seen = getTrainerSeenIds();
   const today = new Date();
+  let globalUnseen = 0;
   const rows = clients.map(c => {
     const logs = (allLogs || []).filter(l => l.client_id === c.id);
     const dates = Array.from(new Set(logs.map(l => l.logged_at))).sort();
     const lastDate = dates.length ? dates[dates.length - 1] : null;
     const daysSince = lastDate ? Math.floor((today - new Date(lastDate + 'T00:00:00')) / (1000*60*60*24)) : null;
-    const unresolvedNotes = logs.filter(l => l.note && !l.trainer_reply).length;
+
+    let needsAttention = 0;
+    logs.forEach(l => {
+      if (l.note && !l.trainer_reply) needsAttention++;
+      (commentsByLog[l.id] || []).forEach(cm => {
+        if (cm.sender === 'client' && !seen.has('c_' + cm.id)) needsAttention++;
+      });
+    });
+    globalUnseen += needsAttention;
 
     // Trend objętości: suma per dzień (tylko siłowe), ostatnie dwa treningi.
     const volByDate = {};
@@ -220,8 +259,18 @@ async function loadAllClientsOverview(clients){
       volTrend = diff < 0 ? 'down' : (diff > 0 ? 'up' : 'flat');
     }
 
-    return { id: c.id, name: c.name, lastDate, daysSince, unresolvedNotes, volTrend };
+    return { id: c.id, name: c.name, lastDate, daysSince, needsAttention, volTrend };
   });
+
+  const banner = document.getElementById('trainerGlobalReplyBanner');
+  if (banner) {
+    if (globalUnseen > 0) {
+      banner.innerHTML = '💬 Masz ' + globalUnseen + ' ' + (globalUnseen === 1 ? 'nową wiadomość' : 'nowe wiadomości') + ' od klientów, które czekają na odpowiedź.';
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
 
   tbl.innerHTML = `
     <tr><th>Klient</th><th>Ostatni trening</th><th>Notatki</th><th>Trend objętości</th></tr>
@@ -229,7 +278,7 @@ async function loadAllClientsOverview(clients){
       <tr onclick="selectClientFromOverview('${r.id}')">
         <td><b>${escapeHtml(r.name)}</b></td>
         <td>${r.lastDate ? r.lastDate + (r.daysSince >= 5 ? ' <span class="badge warn">' + r.daysSince + ' dni temu</span>' : '') : '<span class="badge warn">brak treningów</span>'}</td>
-        <td>${r.unresolvedNotes ? '<span class="badge warn">💬 ' + r.unresolvedNotes + '</span>' : '<span class="badge ok">brak</span>'}</td>
+        <td>${r.needsAttention ? '<span class="badge warn">💬 ' + r.needsAttention + '</span>' : '<span class="badge ok">brak</span>'}</td>
         <td>${r.volTrend === 'down' ? '<span class="badge warn">▼ spada</span>' : r.volTrend === 'up' ? '<span class="badge ok">▲ rośnie</span>' : '<span class="hint">—</span>'}</td>
       </tr>
     `).join('')}
@@ -244,6 +293,9 @@ function openReport(){
 
 let currentClientId = null;
 let currentComments = {}; // exercise_log_id -> [{sender, message, created_at}] — dalszy wątek ponad note/trainer_reply
+let currentSets = []; // exercise_logs aktualnie wybranego klienta — potrzebne do liczenia powiadomień
+let allClientsCache = []; // lista wszystkich klientów — do odświeżenia widoku "Wszyscy klienci" po oznaczeniu jako przeczytane
+let trainingDayKeys = {}; // idx dnia w "Treningi klienta" -> [klucze wiadomości klienta do oznaczenia jako przeczytane]
 
 async function loadClient(){
   const id = document.getElementById('clientSelect').value;
@@ -257,6 +309,7 @@ async function loadClient(){
   ]);
   if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
 
+  currentSets = sets || [];
   currentComments = {};
   const noteIds = (sets || []).filter(s => s.note).map(s => s.id);
   if (noteIds.length) {
@@ -269,6 +322,26 @@ async function loadClient(){
   loadGoalIntoEditor(client);
   loadPlanItems(id);
   renderFlags(meas || [], sets || []);
+  renderTrainerClientBanner();
+}
+
+// Baner "nowa wiadomość" dla AKTUALNIE wybranego klienta — liczy nieodpowiedziane
+// notatki oraz nieprzeczytane (przez trenera) wiadomości klienta w wątku.
+function renderTrainerClientBanner(){
+  const banner = document.getElementById('trainerClientReplyBanner');
+  if (!banner) return;
+  const seen = getTrainerSeenIds();
+  let count = 0;
+  currentSets.forEach(s => {
+    if (s.note && !s.trainer_reply) count++;
+    (currentComments[s.id] || []).forEach(c => { if (c.sender === 'client' && !seen.has('c_' + c.id)) count++; });
+  });
+  if (count > 0) {
+    banner.innerHTML = '💬 Ten klient ma ' + count + ' ' + (count === 1 ? 'wiadomość' : 'wiadomości') + ', która czeka na Twoją odpowiedź — zobacz sekcję "Treningi klienta" niżej.';
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
 }
 
 // ---------- CEL KLIENTA ----------
@@ -580,11 +653,19 @@ function renderTrainingList(sets){
   const byDate = {};
   sets.forEach(s => { (byDate[s.logged_at] = byDate[s.logged_at] || []).push(s); });
   const dates = Object.keys(byDate).sort().reverse();
+  trainingDayKeys = {};
   exList.innerHTML = dates.map((d, idx) => {
     const rows = byDate[d];
     const totalVol = rows.reduce((sum, s) => sum + volumeOf(s), 0);
     const flagged = rows.filter(s => s.note).length;
     const mood = rows.find(s => s.mood_rating)?.mood_rating;
+
+    const keys = [];
+    rows.forEach(s => {
+      (currentComments[s.id] || []).forEach(c => { if (c.sender === 'client') keys.push('c_' + c.id); });
+    });
+    trainingDayKeys[idx] = keys;
+
     return `
       <div class="training-row" onclick="toggleTraining(${idx})">
         <div class="hi-info">
@@ -633,6 +714,7 @@ async function saveReply(exerciseLogId, hasFirstReply){
   }
   if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
   loadClient();
+  loadAllClientsOverview(allClientsCache);
 }
 
 function toggleTraining(idx){
@@ -641,6 +723,14 @@ function toggleTraining(idx){
   const open = detail.style.display !== 'none';
   detail.style.display = open ? 'none' : 'block';
   chev.textContent = open ? '▾' : '▴';
+  if (!open) {
+    const keys = trainingDayKeys[idx] || [];
+    if (keys.length) {
+      markTrainerSeen(keys);
+      renderTrainerClientBanner();
+      loadAllClientsOverview(allClientsCache);
+    }
+  }
 }
 
 function photoThumbs(m){
