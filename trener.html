@@ -223,6 +223,7 @@ function openReport(){
 }
 
 let currentClientId = null;
+let currentComments = {}; // exercise_log_id -> [{sender, message, created_at}] — dalszy wątek ponad note/trainer_reply
 
 async function loadClient(){
   const id = document.getElementById('clientSelect').value;
@@ -235,6 +236,14 @@ async function loadClient(){
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
   ]);
   if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
+
+  currentComments = {};
+  const noteIds = (sets || []).filter(s => s.note).map(s => s.id);
+  if (noteIds.length) {
+    const { data: comments } = await sb.from('exercise_log_comments').select('*').in('exercise_log_id', noteIds).order('created_at');
+    (comments || []).forEach(c => { (currentComments[c.exercise_log_id] = currentComments[c.exercise_log_id] || []).push(c); });
+  }
+
   renderProfile(client, meas || []);
   renderDash(meas || [], sets || []);
   loadGoalIntoEditor(client);
@@ -571,11 +580,16 @@ function renderTrainingList(sets){
             ${formatExerciseDetails(s)}
             ${s.video_url ? '<br><a href="'+s.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
             ${s.note ? `
-              <div class="note-flag">💬 ${escapeHtml(s.note)}</div>
-              ${s.trainer_reply ? '<div class="note-flag" style="border-left-color:var(--good);">🗨️ Twoja odpowiedź: ' + escapeHtml(s.trainer_reply) + '</div>' : ''}
+              <div class="note-flag">💬 Klient: ${escapeHtml(s.note)}</div>
+              ${s.trainer_reply ? '<div class="note-flag" style="border-left-color:var(--good);">🗨️ Ty: ' + escapeHtml(s.trainer_reply) + '</div>' : ''}
+              ${(currentComments[s.id] || []).map(c => {
+                const label = c.sender === 'trainer' ? '🗨️ Ty' : '💬 Klient';
+                const style = c.sender === 'trainer' ? 'border-left-color:var(--good);' : '';
+                return '<div class="note-flag" style="' + style + '">' + label + ': ' + escapeHtml(c.message) + '</div>';
+              }).join('')}
               <div class="reply-box">
-                <input type="text" id="reply-${s.id}" placeholder="Odpowiedz klientowi..." value="${escapeHtml(s.trainer_reply||'')}">
-                <button class="btn secondary" onclick="saveReply('${s.id}')">Wyślij</button>
+                <input type="text" id="reply-${s.id}" placeholder="${s.trainer_reply ? 'Napisz kolejną wiadomość...' : 'Odpowiedz klientowi...'}">
+                <button class="btn secondary" onclick="saveReply('${s.id}', ${s.trainer_reply ? 'true' : 'false'})">Wyślij</button>
               </div>
             ` : ''}
           </div>
@@ -585,10 +599,18 @@ function renderTrainingList(sets){
   }).join('');
 }
 
-async function saveReply(exerciseLogId){
+async function saveReply(exerciseLogId, hasFirstReply){
   const input = document.getElementById('reply-' + exerciseLogId);
-  const text = input.value.trim() || null;
-  const { error } = await sb.from('exercise_logs').update({ trainer_reply: text }).eq('id', exerciseLogId);
+  const text = input.value.trim();
+  if (!text) return;
+  let error;
+  if (!hasFirstReply) {
+    // Pierwsza odpowiedź trenera na notatkę klienta — trzymamy jak dotychczas w kolumnie.
+    ({ error } = await sb.from('exercise_logs').update({ trainer_reply: text }).eq('id', exerciseLogId));
+  } else {
+    // Kolejna wiadomość w tym samym wątku — dopisujemy do exercise_log_comments.
+    ({ error } = await sb.from('exercise_log_comments').insert({ exercise_log_id: exerciseLogId, sender: 'trainer', message: text }));
+  }
   if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
   loadClient();
 }
