@@ -921,10 +921,14 @@ function addExerciseRow(prefill){
       <div class="hint">Objętość tego ćwiczenia: <strong class="ex-vol">0 kg</strong></div>
     </div>
     <div class="cardio-fields" style="display:none;">
-      <div class="field"><label>Czas (min)</label><input type="number" step="1" class="ex-duration" value="20" oninput="onRowInput(this)"></div>
+      <div class="field"><label>Czas (min)</label><input type="number" step="0.01" class="ex-duration" value="20" oninput="onRowInput(this)"></div>
       <div class="field ex-resistance-wrap" style="display:none;"><label>Obciążenie / poziom oporu</label><input type="number" step="1" class="ex-resistance" value="10" oninput="onRowInput(this)"></div>
       <div class="field ex-incline-wrap" style="display:none;"><label>Poziom wzniesienia</label><input type="number" step="1" class="ex-incline" value="1" oninput="onRowInput(this)"></div>
-      <div class="field ex-distance-wrap" style="display:none;"><label>Dystans (km)</label><input type="number" step="0.1" class="ex-distance" value="5" oninput="onRowInput(this)"></div>
+      <div class="field ex-distance-wrap" style="display:none;">
+        <label>Dystans (km)</label>
+        <input type="number" step="0.01" class="ex-distance" value="5" oninput="onRowInput(this)">
+        <div class="hint">Tempo: <strong class="ex-pace">—</strong></div>
+      </div>
     </div>
     <div class="field" style="margin-top:10px;"><label>Wideo z wykonania (opcjonalnie, max ${MAX_VIDEO_MB}MB)</label><input type="file" class="ex-video" accept="video/*"></div>
     <div class="field"><label>...albo wklej link do wideo (np. z Google Drive/YouTube)</label><input type="text" class="ex-videolink" placeholder="https://..."></div>
@@ -1138,7 +1142,7 @@ function onRowInput(el){
 
 function updateRowVolume(row){
   const group = row.querySelector('.ex-group').value;
-  if (group === CARDIO_GROUP) { row.dataset.volume = 0; return; }
+  if (group === CARDIO_GROUP) { row.dataset.volume = 0; updatePace(row); return; }
   const sets = getSetsDetail(row);
   const vol = sets.reduce((sum, s) => {
     return sum + ((s.reps !== null && s.weight_kg !== null) ? s.reps * s.weight_kg : 0);
@@ -1146,6 +1150,27 @@ function updateRowVolume(row){
   const disp = row.querySelector('.ex-vol');
   if (disp) disp.textContent = vol + ' kg';
   row.dataset.volume = vol;
+}
+
+// Tempo (min/km) dla biegu/roweru na zewnątrz — liczone na żywo z czasu i dystansu,
+// nie trzeba nic dodatkowo zapisywać (przy zapisie i tak mamy duration_min + distance_km).
+function formatPace(durationMin, distanceKm){
+  const d = parseFloat(durationMin), k = parseFloat(distanceKm);
+  if (!d || !k || d <= 0 || k <= 0) return null;
+  const paceMinPerKm = d / k;
+  let min = Math.floor(paceMinPerKm);
+  let sec = Math.round((paceMinPerKm - min) * 60);
+  if (sec === 60) { min += 1; sec = 0; }
+  return min + ':' + String(sec).padStart(2, '0') + ' min/km';
+}
+
+function updatePace(row){
+  const paceEl = row.querySelector('.ex-pace');
+  if (!paceEl) return;
+  const exName = getExerciseName(row);
+  if (!DISTANCE_EXERCISES.includes(exName)) { paceEl.textContent = '—'; return; }
+  const pace = formatPace(row.querySelector('.ex-duration').value, row.querySelector('.ex-distance').value);
+  paceEl.textContent = pace || '—';
 }
 
 function updateTotalVolume(){
@@ -1444,7 +1469,11 @@ function formatHistoryDetails(r){
     let txt = 'Czas: ' + r.duration_min + ' min';
     if (r.resistance_level !== null && r.resistance_level !== undefined) txt += ' · Obciążenie: ' + r.resistance_level;
     if (r.incline_level !== null && r.incline_level !== undefined) txt += ' · Wzniesienie: ' + r.incline_level;
-    if (r.distance_km !== null && r.distance_km !== undefined) txt += ' · Dystans: ' + r.distance_km + ' km';
+    if (r.distance_km !== null && r.distance_km !== undefined) {
+      txt += ' · Dystans: ' + r.distance_km + ' km';
+      const pace = formatPace(r.duration_min, r.distance_km);
+      if (pace) txt += ' · Tempo: ' + pace;
+    }
     return txt;
   }
   if (Array.isArray(r.sets_detail) && r.sets_detail.length) {
