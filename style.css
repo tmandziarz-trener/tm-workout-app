@@ -74,6 +74,8 @@ canvas{max-height:260px;}
 .progress{font-size:12px;color:var(--text-muted);margin-top:8px;}
 
 .alert-banner{background:#fdecea;border:1px solid var(--bad);color:#8a2e1c;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-weight:700;font-size:14px;}
+.alert-banner.reply{background:#eef6ee;border-color:var(--good);color:#2f5233;}
+.alert-banner .btn{width:auto;padding:9px 16px;font-size:13px;margin-top:8px;}
 
 .profile-row{display:flex;align-items:center;gap:14px;}
 .avatar-wrap{position:relative;width:64px;height:64px;flex-shrink:0;}
