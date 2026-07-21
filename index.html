@@ -89,6 +89,7 @@
         </div>
       </div>
       <div id="goalBox" style="display:none;"></div>
+      <div id="prBox" style="display:none;"></div>
       <div class="spacer"></div>
       <button class="btn secondary" onclick="logout()">To nie ja / zmień</button>
     </div>
@@ -241,11 +242,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeAvatarLightbox();
 });
 
-function showToast(msg){
+function showToast(msg, duration){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 3500);
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(()=>t.classList.remove('show'), duration || 3500);
 }
 
 // ---------- INIT: kim jesteś ----------
@@ -387,6 +389,7 @@ function enterMain(id, name){
   loadPhotoComparison(id);
   loadMeasHistory(id);
   checkNewReplies(id);
+  loadPRs(id);
 }
 
 // ---------- PROFIL: awatar, waga, wzrost ----------
@@ -593,6 +596,41 @@ async function loadPhotoComparison(clientId){
   `;
   box.innerHTML = '<div class="photo-compare-row">' + row('Pierwsze', first) + row('Najnowsze', last) + '</div>';
   if (panel && document.getElementById('panel-meas').style.display !== 'none') panel.style.display = 'block';
+}
+
+// ---------- REKORDY ŻYCIOWE (trwale widoczne, nie tylko toast po zapisie) ----------
+// Liczone na bieżąco z całej historii (najwyższy ciężar per ćwiczenie) — nie trzeba
+// nic dodatkowego zapisywać w bazie.
+function computeAllTimePRs(rows){
+  const byExercise = {};
+  (rows || []).filter(r => r.duration_min === null || r.duration_min === undefined).forEach(r => {
+    let maxW = null;
+    if (Array.isArray(r.sets_detail)) {
+      r.sets_detail.forEach(s => { if (s && s.weight_kg !== null && s.weight_kg !== undefined) maxW = Math.max(maxW ?? -Infinity, s.weight_kg); });
+    }
+    if (r.weight_kg !== null && r.weight_kg !== undefined) maxW = Math.max(maxW ?? -Infinity, r.weight_kg);
+    if (maxW === null || maxW === -Infinity) return;
+    const cur = byExercise[r.exercise_name];
+    if (!cur || maxW > cur.weight || (maxW === cur.weight && r.logged_at > cur.date)) {
+      byExercise[r.exercise_name] = { exercise_name: r.exercise_name, weight: maxW, date: r.logged_at };
+    }
+  });
+  return Object.values(byExercise).sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
+}
+
+async function loadPRs(clientId){
+  const box = document.getElementById('prBox');
+  if (!box) return;
+  const { data, error } = await sb.from('exercise_logs').select('exercise_name,weight_kg,sets_detail,logged_at,duration_min').eq('client_id', clientId);
+  if (error || !data) { box.style.display = 'none'; return; }
+
+  const prs = computeAllTimePRs(data);
+  if (!prs.length) { box.style.display = 'none'; return; }
+
+  box.innerHTML = '<div class="card pr-card"><h2>🏆 Rekordy życiowe</h2>' +
+    prs.map(p => `<div class="pr-item"><span>${escapeHtmlLocal(p.exercise_name)}</span><b>${p.weight} kg</b><span class="hint">${p.date}</span></div>`).join('') +
+    '</div>';
+  box.style.display = 'block';
 }
 
 // ---------- PLAN TRENINGOWY ----------
@@ -1237,7 +1275,7 @@ async function saveWorkout(){
     if (error) throw error;
 
     if (newPRs.length) {
-      showToast('🏆 Nowy rekord! ' + newPRs.map(p => p.exercise_name + ': ' + p.weight_kg + ' kg').join(', '));
+      showToast('🏆 Nowy rekord! ' + newPRs.map(p => p.exercise_name + ': ' + p.weight_kg + ' kg').join(', '), 8000);
     } else {
       showToast(editingDate ? 'Zmiany zapisane!' : ('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!'));
     }
@@ -1246,6 +1284,7 @@ async function saveWorkout(){
     loadHistory();
     loadWeeklyTrainingCount(clientId);
     loadStreak(clientId);
+    loadPRs(clientId);
   } catch (err) {
     showToast('Błąd zapisu: ' + err.message);
   } finally {
@@ -1449,6 +1488,7 @@ async function deleteWorkoutDate(date){
   if (editingDate === date) cancelEditWorkout();
   loadHistory();
   loadWeeklyTrainingCount(clientId);
+  loadPRs(clientId);
 }
 
 function escapeHtmlLocal(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
