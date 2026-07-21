@@ -152,12 +152,26 @@ function volumeOf(s){
 
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function formatPace(durationMin, distanceKm){
+  const d = parseFloat(durationMin), k = parseFloat(distanceKm);
+  if (!d || !k || d <= 0 || k <= 0) return null;
+  const paceMinPerKm = d / k;
+  let min = Math.floor(paceMinPerKm);
+  let sec = Math.round((paceMinPerKm - min) * 60);
+  if (sec === 60) { min += 1; sec = 0; }
+  return min + ':' + String(sec).padStart(2, '0') + ' min/km';
+}
+
 function formatExerciseDetails(s){
   if (s.duration_min !== null && s.duration_min !== undefined) {
     let txt = 'Czas: ' + s.duration_min + ' min';
     if (s.resistance_level !== null && s.resistance_level !== undefined) txt += ' · Obciążenie: ' + s.resistance_level;
     if (s.incline_level !== null && s.incline_level !== undefined) txt += ' · Wzniesienie: ' + s.incline_level;
-    if (s.distance_km !== null && s.distance_km !== undefined) txt += ' · Dystans: ' + s.distance_km + ' km';
+    if (s.distance_km !== null && s.distance_km !== undefined) {
+      txt += ' · Dystans: ' + s.distance_km + ' km';
+      const pace = formatPace(s.duration_min, s.distance_km);
+      if (pace) txt += ' · Tempo: ' + pace;
+    }
     return txt;
   }
   if (Array.isArray(s.sets_detail) && s.sets_detail.length) {
