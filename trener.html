@@ -42,7 +42,7 @@
       <div class="card">
         <div class="profile-row">
           <div class="avatar-wrap">
-            <img id="clientAvatarImg" class="avatar-img" src="" alt="" style="display:none;">
+            <img id="clientAvatarImg" class="avatar-img" src="" alt="" style="display:none;" onclick="openAvatarLightbox()">
             <div id="clientAvatarPlaceholder" class="avatar-placeholder">🙂</div>
           </div>
           <div class="profile-info">
@@ -121,9 +121,29 @@
 
 </main>
 
+<div id="avatarLightbox" class="avatar-lightbox" style="display:none;" onclick="closeAvatarLightbox()">
+  <img id="avatarLightboxImg" src="" alt="">
+</div>
+
 <script src="config.js"></script>
 <script>
 let weightChart, circChart, volChart;
+
+// Duży podgląd zdjęcia profilowego klienta po kliknięciu.
+function openAvatarLightbox(){
+  const img = document.getElementById('clientAvatarImg');
+  if (!img || img.style.display === 'none' || !img.src) return;
+  document.getElementById('avatarLightboxImg').src = img.src;
+  document.getElementById('avatarLightbox').style.display = 'flex';
+}
+
+function closeAvatarLightbox(){
+  document.getElementById('avatarLightbox').style.display = 'none';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAvatarLightbox();
+});
 
 async function checkPassword(){
   const pwd = document.getElementById('pwd').value;
