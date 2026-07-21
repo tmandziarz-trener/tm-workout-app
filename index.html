@@ -67,6 +67,7 @@
   <div id="screen-main" style="display:none;">
 
     <div id="reportWarning" class="alert-banner" style="display:none;"></div>
+    <div id="replyBanner" class="alert-banner reply" style="display:none;"></div>
 
     <div class="card">
       <div class="profile-row">
@@ -96,7 +97,7 @@
       <button id="tab-meas" class="active" onclick="showTab('meas')">Pomiar tygodniowy</button>
       <button id="tab-train" onclick="showTab('train')">Log treningu</button>
       <button id="tab-plan" onclick="showTab('plan')">Plan</button>
-      <button id="tab-history" onclick="showTab('history')">Historia</button>
+      <button id="tab-history" onclick="showTab('history')">Historia <span id="historyBadge" class="badge warn" style="display:none;"></span></button>
     </div>
 
     <!-- ----- POROWNANIE ZDJĘĆ SYLWETKI ----- -->
@@ -385,6 +386,7 @@ function enterMain(id, name){
   loadGoal(id);
   loadPhotoComparison(id);
   loadMeasHistory(id);
+  checkNewReplies(id);
 }
 
 // ---------- PROFIL: awatar, waga, wzrost ----------
@@ -1253,6 +1255,59 @@ async function saveWorkout(){
 }
 
 // ---------- HISTORIA TRENINGÓW / EDYCJA ----------
+// ---------- POWIADOMIENIE O NOWEJ ODPOWIEDZI TRENERA ----------
+// Śledzimy "przeczytane" odpowiedzi trenera lokalnie (localStorage) po ich id —
+// klucz 'tr_<id>' dla pierwszej odpowiedzi (kolumna trainer_reply, niezmienna po zapisie),
+// 'c_<id>' dla każdej kolejnej wiadomości trenera w wątku (exercise_log_comments).
+function getSeenReplyIds(clientId){
+  try { return new Set(JSON.parse(localStorage.getItem('tmw_seen_replies_' + clientId) || '[]')); }
+  catch (e) { return new Set(); }
+}
+
+function markManyReplySeen(clientId, keys){
+  if (!keys.length) return;
+  const s = getSeenReplyIds(clientId);
+  keys.forEach(k => s.add(k));
+  localStorage.setItem('tmw_seen_replies_' + clientId, JSON.stringify(Array.from(s)));
+}
+
+async function checkNewReplies(clientId){
+  const banner = document.getElementById('replyBanner');
+  const badge = document.getElementById('historyBadge');
+  if (!banner || !badge) return;
+
+  const { data: logs, error } = await sb.from('exercise_logs').select('id,trainer_reply').eq('client_id', clientId).not('note', 'is', null);
+  if (error) return;
+
+  const noteIds = (logs || []).map(r => r.id);
+  let comments = [];
+  if (noteIds.length) {
+    const { data } = await sb.from('exercise_log_comments').select('id,exercise_log_id,sender').in('exercise_log_id', noteIds);
+    comments = data || [];
+  }
+
+  const seen = getSeenReplyIds(clientId);
+  let unseenCount = 0;
+  (logs || []).forEach(r => { if (r.trainer_reply && !seen.has('tr_' + r.id)) unseenCount++; });
+  comments.forEach(c => { if (c.sender === 'trainer' && !seen.has('c_' + c.id)) unseenCount++; });
+
+  if (unseenCount > 0) {
+    banner.innerHTML = '💬 Masz ' + unseenCount + ' ' + (unseenCount === 1 ? 'nową odpowiedź' : 'nowe odpowiedzi') + ' od trenera na Twoje pytania!<br><button class="btn secondary" onclick="goToReplies()">Zobacz</button>';
+    banner.style.display = 'block';
+    badge.textContent = unseenCount;
+    badge.style.display = 'inline-block';
+  } else {
+    banner.style.display = 'none';
+    badge.style.display = 'none';
+  }
+}
+
+function goToReplies(){
+  showTab('history');
+}
+
+let historyDayKeys = {}; // idx dnia -> [klucze odpowiedzi trenera do oznaczenia jako przeczytane]
+
 async function loadHistory(){
   const clientId = localStorage.getItem('tmw_client_id');
   const list = document.getElementById('historyList');
@@ -1284,12 +1339,21 @@ async function loadHistory(){
     return;
   }
 
+  historyDayKeys = {};
   const moodEmoji = { 1:'😞', 2:'😕', 3:'😐', 4:'🙂', 5:'💪' };
   list.innerHTML = dates.map((d, idx) => {
     const rows = byDate[d];
     const names = rows.map(r => escapeHtmlLocal(r.exercise_name)).join(', ');
     const mood = rows.find(r => r.mood_rating)?.mood_rating;
     const threadCount = rows.filter(r => r.note).length;
+
+    const keys = [];
+    rows.forEach(r => {
+      if (r.trainer_reply) keys.push('tr_' + r.id);
+      (commentsByLog[r.id] || []).forEach(c => { if (c.sender === 'trainer') keys.push('c_' + c.id); });
+    });
+    historyDayKeys[idx] = keys;
+
     return `
       <div class="training-row" onclick="toggleHistoryDetail(${idx})">
         <div class="hi-info">
@@ -1322,6 +1386,14 @@ function toggleHistoryDetail(idx){
   const open = detail.style.display !== 'none';
   detail.style.display = open ? 'none' : 'block';
   chev.textContent = open ? '▾' : '▴';
+  if (!open) {
+    const clientId = localStorage.getItem('tmw_client_id');
+    const keys = historyDayKeys[idx] || [];
+    if (keys.length) {
+      markManyReplySeen(clientId, keys);
+      checkNewReplies(clientId);
+    }
+  }
 }
 
 function formatHistoryDetails(r){
