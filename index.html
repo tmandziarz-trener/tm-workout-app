@@ -71,8 +71,8 @@
     <div class="card">
       <div class="profile-row">
         <div class="avatar-wrap">
-          <img id="avatarImg" class="avatar-img" src="" alt="" style="display:none;" onclick="pulseAvatar()">
-          <div id="avatarPlaceholder" class="avatar-placeholder" onclick="pulseAvatar()">🙂</div>
+          <img id="avatarImg" class="avatar-img" src="" alt="" style="display:none;" onclick="openAvatarLightbox()">
+          <div id="avatarPlaceholder" class="avatar-placeholder">🙂</div>
           <label class="avatar-edit" for="avatarInput">✎</label>
           <input type="file" id="avatarInput" accept="image/*" style="display:none;" onchange="uploadAvatar(this)">
         </div>
@@ -200,6 +200,10 @@
 
 <div class="toast" id="toast"></div>
 
+<div id="avatarLightbox" class="avatar-lightbox" style="display:none;" onclick="closeAvatarLightbox()">
+  <img id="avatarLightboxImg" src="" alt="">
+</div>
+
 <script src="config.js"></script>
 <script>
 let exerciseCounter = 0;
@@ -219,14 +223,22 @@ function todayStr(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-function pulseAvatar(){
-  ['avatarImg','avatarPlaceholder'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.add('avatar-zoom-pulse');
-    setTimeout(() => el.classList.remove('avatar-zoom-pulse'), 500);
-  });
+// Duży podgląd zdjęcia profilowego po kliknięciu — sam hover-zoom (CSS) jest tylko
+// delikatnym podglądem, tutaj chodzi o to, żeby faktycznie dokładnie zobaczyć osobę.
+function openAvatarLightbox(){
+  const img = document.getElementById('avatarImg');
+  if (!img || img.style.display === 'none' || !img.src) return; // brak zdjęcia — nie ma czego powiększać
+  document.getElementById('avatarLightboxImg').src = img.src;
+  document.getElementById('avatarLightbox').style.display = 'flex';
 }
+
+function closeAvatarLightbox(){
+  document.getElementById('avatarLightbox').style.display = 'none';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAvatarLightbox();
+});
 
 function showToast(msg){
   const t = document.getElementById('toast');
