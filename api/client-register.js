@@ -51,6 +51,7 @@ export default async function handler(req, res) {
       phone: phone || null,
       email: email || null,
       password_hash,
+      password_set: true,
     }).select('id,name').single();
     if (error) throw error;
 

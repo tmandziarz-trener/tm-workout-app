@@ -35,7 +35,7 @@ export default async function handler(req, res) {
     }
 
     const password_hash = hashPassword(String(password));
-    const { error } = await supabase.from('clients').update({ password_hash }).eq('id', id);
+    const { error } = await supabase.from('clients').update({ password_hash, password_set: true }).eq('id', id);
     if (error) throw error;
 
     return res.status(200).json({ ok: true, id: existing.id, name: existing.name });
