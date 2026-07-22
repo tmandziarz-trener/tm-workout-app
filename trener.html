@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TM Workout — Panel Trenera</title>
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest-trener.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#a8875c">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="exercises.js"></script>
@@ -60,10 +63,15 @@
       <div id="trainerPrBox" style="display:none;"></div>
       <div class="card center">
         <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
+        <button class="btn secondary" id="btnExportCsv" style="margin-top:10px;" onclick="exportClientCsv()">📥 Eksportuj dane do CSV</button>
       </div>
       <div class="card">
         <h2>🚩 Uwagi</h2>
         <div id="flagsBox"></div>
+      </div>
+      <div class="card">
+        <h2>🍗 Dieta — checkin (7 dni)</h2>
+        <div id="dietSummaryBox"><div class="hint">Wczytywanie...</div></div>
       </div>
       <div class="card">
         <h2>🎯 Cel klienta</h2>
@@ -195,7 +203,7 @@ if (sessionStorage.getItem('tmw_trener_ok') === '1') {
 }
 
 async function loadNames(){
-  const { data, error } = await sb.from('clients').select('id,name').order('name');
+  const { data, error } = await sb.from('clients').select('id,name,password_set,goal_type').order('name');
   if (error) { alert('Błąd wczytywania klientów: ' + error.message); return; }
   const sel = document.getElementById('clientSelect');
   data.forEach(c => {
@@ -219,6 +227,11 @@ async function loadAllClientsOverview(clients){
 
   const { data: allLogs, error } = await sb.from('exercise_logs').select('id,client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min');
   if (error) { tbl.innerHTML = '<tr><td class="hint">Błąd: ' + error.message + '</td></tr>'; return; }
+
+  // Ile pozycji planu treningowego ma każdy klient — do odznaki onboardingu.
+  const { data: planRows } = await sb.from('training_plan_items').select('client_id');
+  const planCountByClient = {};
+  (planRows || []).forEach(p => { planCountByClient[p.client_id] = (planCountByClient[p.client_id] || 0) + 1; });
 
   // Wątek wiadomości — potrzebny do wykrycia nowych odpowiedzi klienta (nie tylko
   // pierwszej, nieodpowiedzianej notatki, ale też dalszych wiadomości w wątku).
@@ -261,7 +274,10 @@ async function loadAllClientsOverview(clients){
       volTrend = diff < 0 ? 'down' : (diff > 0 ? 'up' : 'flat');
     }
 
-    return { id: c.id, name: c.name, lastDate, daysSince, needsAttention, volTrend };
+    return {
+      id: c.id, name: c.name, lastDate, daysSince, needsAttention, volTrend,
+      hasPassword: !!c.password_set, hasGoal: !!c.goal_type, hasPlan: (planCountByClient[c.id] || 0) > 0,
+    };
   });
 
   const banner = document.getElementById('trainerGlobalReplyBanner');
@@ -275,13 +291,18 @@ async function loadAllClientsOverview(clients){
   }
 
   tbl.innerHTML = `
-    <tr><th>Klient</th><th>Ostatni trening</th><th>Notatki</th><th>Trend objętości</th></tr>
+    <tr><th>Klient</th><th>Ostatni trening</th><th>Notatki</th><th>Trend objętości</th><th>Onboarding</th></tr>
     ${rows.map(r => `
       <tr onclick="selectClientFromOverview('${r.id}')">
         <td><b>${escapeHtml(r.name)}</b></td>
         <td>${r.lastDate ? r.lastDate + (r.daysSince >= 5 ? ' <span class="badge warn">' + r.daysSince + ' dni temu</span>' : '') : '<span class="badge warn">brak treningów</span>'}</td>
         <td>${r.needsAttention ? '<span class="badge warn">💬 ' + r.needsAttention + '</span>' : '<span class="badge ok">brak</span>'}</td>
         <td>${r.volTrend === 'down' ? '<span class="badge warn">▼ spada</span>' : r.volTrend === 'up' ? '<span class="badge ok">▲ rośnie</span>' : '<span class="hint">—</span>'}</td>
+        <td>
+          <span class="badge ${r.hasPassword ? 'ok' : 'warn'}" title="Hasło">🔑${r.hasPassword ? '' : ' brak'}</span>
+          <span class="badge ${r.hasGoal ? 'ok' : 'warn'}" title="Cel">🎯${r.hasGoal ? '' : ' brak'}</span>
+          <span class="badge ${r.hasPlan ? 'ok' : 'warn'}" title="Plan">📋${r.hasPlan ? '' : ' brak'}</span>
+        </td>
       </tr>
     `).join('')}
   `;
@@ -296,6 +317,8 @@ function openReport(){
 let currentClientId = null;
 let currentComments = {}; // exercise_log_id -> [{sender, message, created_at}] — dalszy wątek ponad note/trainer_reply
 let currentSets = []; // exercise_logs aktualnie wybranego klienta — potrzebne do liczenia powiadomień
+let currentMeas = []; // measurements aktualnie wybranego klienta — potrzebne do eksportu CSV
+let currentClientName = ''; // nazwa aktualnie wybranego klienta — do nazwy pliku CSV
 let allClientsCache = []; // lista wszystkich klientów — do odświeżenia widoku "Wszyscy klienci" po oznaczeniu jako przeczytane
 let trainingDayKeys = {}; // idx dnia w "Treningi klienta" -> [klucze wiadomości klienta do oznaczenia jako przeczytane]
 
@@ -312,6 +335,8 @@ async function loadClient(){
   if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
 
   currentSets = sets || [];
+  currentMeas = meas || [];
+  currentClientName = client ? client.name : '';
   currentComments = {};
   const noteIds = (sets || []).filter(s => s.note).map(s => s.id);
   if (noteIds.length) {
@@ -327,6 +352,64 @@ async function loadClient(){
   renderFlags(meas || [], sets || []);
   renderTrainerClientBanner();
   renderTrainerPRs();
+  loadDietSummary(id);
+}
+
+// ---------- EKSPORT DANYCH KLIENTA DO CSV ----------
+function downloadCsv(filename, header, rows){
+  const esc = (v) => {
+    const s = (v === null || v === undefined) ? '' : String(v);
+    return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [header.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(',')));
+  const csv = '﻿' + lines.join('\r\n'); // BOM — żeby polskie znaki poprawnie otwierały się w Excelu
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportClientCsv(){
+  if (!currentClientId) { alert('Wybierz klienta.'); return; }
+  const safeName = (currentClientName || 'klient').replace(/[^a-zA-Z0-9_\-]+/g, '_');
+
+  const exHeader = ['data','cwiczenie','serie','powtorzenia_sr','ciezar_kg_sr','dystans_km','czas_min','tempo_min_km','objetosc_kg','nastroj','notatka','odpowiedz_trenera'];
+  const exRows = currentSets.slice().sort((a, b) => a.logged_at.localeCompare(b.logged_at)).map(s => [
+    s.logged_at, s.exercise_name, s.sets ?? '', s.reps ?? '', s.weight_kg ?? '', s.distance_km ?? '', s.duration_min ?? '',
+    formatPace(s.duration_min, s.distance_km) || '', volumeOf(s), s.mood_rating ?? '', s.note ?? '', s.trainer_reply ?? '',
+  ]);
+  downloadCsv(safeName + '_treningi.csv', exHeader, exRows);
+
+  const measHeader = ['data','waga_kg','ramie_cm','klatka_cm','talia_cm','biodro_cm','udo_cm'];
+  const measRows = currentMeas.slice().sort((a, b) => a.measured_at.localeCompare(b.measured_at)).map(m => [
+    m.measured_at, m.weight_kg ?? '', m.arm_cm ?? '', m.chest_cm ?? '', m.waist_cm ?? '', m.hip_cm ?? '', m.thigh_cm ?? '',
+  ]);
+  // Małe opóźnienie między dwoma pobraniami — niektóre przeglądarki blokują dwa
+  // jednoczesne pobrania zainicjowane z tego samego kliknięcia.
+  setTimeout(() => downloadCsv(safeName + '_pomiary.csv', measHeader, measRows), 300);
+}
+
+// Podsumowanie dziennego checkinu żywieniowego (białko) z ostatnich 7 dni.
+async function loadDietSummary(clientId){
+  const box = document.getElementById('dietSummaryBox');
+  if (!box) return;
+  box.innerHTML = '<div class="hint">Wczytywanie...</div>';
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data, error } = await sb.from('daily_checkins').select('*')
+    .eq('client_id', clientId).gte('checkin_date', since).order('checkin_date', { ascending: false });
+  if (error) { box.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  if (!data || !data.length) { box.innerHTML = '<div class="hint">Klient nie zapisał jeszcze checkinów z ostatnich 7 dni.</div>'; return; }
+
+  const okCount = data.filter(c => c.protein_ok).length;
+  const rows = data.map(c => `
+    <div class="flag-item" style="border-left-color:${c.protein_ok ? 'var(--good)' : 'var(--bad)'};">
+      <strong>${c.checkin_date}</strong> — ${c.protein_ok ? '✅ Białko OK' : '❌ Za mało białka'}
+      ${c.note ? '<div class="hint">' + escapeHtml(c.note) + '</div>' : ''}
+    </div>
+  `).join('');
+  box.innerHTML = `<div class="sub" style="margin-bottom:8px;">${okCount}/${data.length} dni z wystarczającą ilością białka.</div>` + rows;
 }
 
 // Wizualny pasek postępu celu — ten sam sposób liczenia co w panelu klienta,
@@ -785,8 +868,21 @@ async function saveReply(exerciseLogId, hasFirstReply){
     ({ error } = await sb.from('exercise_log_comments').insert({ exercise_log_id: exerciseLogId, sender: 'trainer', message: text }));
   }
   if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
+  const row = currentSets.find(s => s.id === exerciseLogId);
+  notifyReply('to_client', row ? row.exercise_name : null, text);
   loadClient();
   loadAllClientsOverview(allClientsCache);
+}
+
+// Powiadomienie e-mail (fire-and-forget) — błąd wysyłki nie powinien przerywać
+// normalnego działania panelu, dlatego zawsze łapiemy wyjątek i tylko logujemy do konsoli.
+function notifyReply(direction, exerciseName, message){
+  if (!currentClientId) return;
+  fetch('/api/notify-reply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ direction, clientId: currentClientId, exerciseName, message }),
+  }).catch(err => console.warn('notify-reply błąd:', err));
 }
 
 function toggleTraining(idx){
@@ -852,6 +948,13 @@ function formatExerciseDetails(s){
     return parts.join(', ') + ' (objętość: ' + volumeOf(s) + ' kg)';
   }
   return (s.sets||'-')+'x'+(s.reps||'-')+' @ '+(s.weight_kg||'-')+'kg (objętość: '+volumeOf(s)+' kg)';
+}
+
+// Rejestracja Service Workera — pozwala zainstalować apkę na ekranie głównym telefonu.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW rejestracja nieudana:', err));
+  });
 }
 </script>
 </body>

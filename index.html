@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TM Workout — Panel Klienta</title>
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest-client.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#a8875c">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="exercises.js"></script>
 </head>
 <body>
@@ -32,6 +36,19 @@
       </div>
       <button class="btn" onclick="findExisting()" id="btn-find">Zaloguj się</button>
       <div class="hint" id="loginHint"></div>
+      <div class="center" style="margin-top:8px;">
+        <span class="hint" style="cursor:pointer;text-decoration:underline;" onclick="toggleForgotPassword()">Zapomniałeś hasła?</span>
+      </div>
+    </div>
+
+    <!-- "Zapomniałem hasła" — zeruje hasło i przy kolejnym logowaniu klient ustawia nowe
+         (dokładnie ten sam ekran, co konta założone przed wprowadzeniem haseł). -->
+    <div id="forgot-password-form" style="display:none;margin-top:14px;">
+      <div class="sub">Podaj telefon albo e-mail z rejestracji — wyzerujemy hasło, a przy najbliższym logowaniu ustawisz nowe.</div>
+      <div class="field"><label>Telefon albo e-mail</label><input type="text" id="fp-value" placeholder="np. 600123456 albo twój@email.pl"></div>
+      <button class="btn secondary" onclick="requestPasswordReset()" id="btn-forgot" style="width:100%;">Zresetuj hasło</button>
+      <button class="btn ghost" style="width:100%;margin-top:8px;" onclick="toggleForgotPassword()">Anuluj</button>
+      <div class="hint" id="forgotHint"></div>
     </div>
 
     <!-- Konto założone przed wprowadzeniem haseł — trzeba je ustawić przy pierwszym logowaniu -->
@@ -98,7 +115,26 @@
       <button id="tab-meas" class="active" onclick="showTab('meas')">Pomiar tygodniowy</button>
       <button id="tab-train" onclick="showTab('train')">Log treningu</button>
       <button id="tab-plan" onclick="showTab('plan')">Plan</button>
+      <button id="tab-diet" onclick="showTab('diet')">Dieta</button>
       <button id="tab-history" onclick="showTab('history')">Historia <span id="historyBadge" class="badge warn" style="display:none;"></span></button>
+    </div>
+
+    <!-- ----- CHECKIN ŻYWIENIOWY (DZIENNY) ----- -->
+    <div id="panel-diet" class="card" style="display:none;">
+      <h2>Dzienny checkin — białko</h2>
+      <div class="sub">Krótkie pytanie na każdy dzień: udało się zjeść wystarczająco białka?</div>
+      <div class="field"><label>Data</label><input type="date" id="dc_date"></div>
+      <div class="mood-picker" style="margin-bottom:14px;">
+        <button type="button" class="mood-btn" id="dc-yes" onclick="setProteinOk(true)">✅ Tak</button>
+        <button type="button" class="mood-btn" id="dc-no" onclick="setProteinOk(false)">❌ Nie</button>
+      </div>
+      <div class="field"><label>Notatka (opcjonalnie)</label><input type="text" id="dc_note" placeholder="np. za mało czasu, jadłem na mieście..."></div>
+      <button class="btn" onclick="saveDailyCheckin()" id="btn-save-checkin">Zapisz checkin</button>
+      <div class="hint" id="checkinSavedHint" style="margin-top:10px;"></div>
+
+      <div class="spacer"></div>
+      <h2 style="margin-top:10px;">Ostatnie 14 dni</h2>
+      <div id="checkinHistoryList"></div>
     </div>
 
     <!-- ----- POROWNANIE ZDJĘĆ SYLWETKI ----- -->
@@ -137,6 +173,14 @@
       <button class="btn secondary" id="btn-cancel-edit-meas" style="display:none;margin-top:10px;width:100%;" onclick="cancelEditMeasurement()">Anuluj edycję</button>
       <div class="progress" id="measProgress"></div>
       <div class="hint" id="lastMeasSent" style="margin-top:10px;"></div>
+
+      <div class="spacer"></div>
+      <h2 style="margin-top:10px;">Twój wykres postępu</h2>
+      <div class="sub">Waga i talia na przestrzeni czasu.</div>
+      <div id="progressChartWrap" style="position:relative;height:220px;margin-bottom:10px;">
+        <canvas id="progressChart"></canvas>
+      </div>
+      <div class="hint" id="progressChartEmpty" style="display:none;">Za mało danych na wykres — dodaj przynajmniej 2 pomiary.</div>
 
       <div class="spacer"></div>
       <h2 style="margin-top:10px;">Historia pomiarów</h2>
@@ -215,6 +259,7 @@ const MAX_PHOTO_MB = 8;
 
 document.getElementById('t_date').value = todayStr();
 document.getElementById('m_date').value = todayStr();
+document.getElementById('dc_date').value = todayStr();
 
 const DEFAULT_REST_SECONDS = 120;
 const savedRestSeconds = localStorage.getItem('tmw_rest_seconds');
@@ -267,7 +312,6 @@ async function findExisting(){
   const hint = document.getElementById('loginHint');
   hint.textContent = '';
   if (!val) { showToast('Wpisz swój numer telefonu albo e-mail, który podałeś przy rejestracji.'); return; }
-  if (!password) { showToast('Wpisz hasło.'); return; }
 
   const btn = document.getElementById('btn-find');
   btn.disabled = true;
@@ -328,6 +372,37 @@ async function setInitialPassword(){
   }
 }
 
+function toggleForgotPassword(){
+  const el = document.getElementById('forgot-password-form');
+  document.getElementById('forgotHint').textContent = '';
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function requestPasswordReset(){
+  const val = document.getElementById('fp-value').value.trim();
+  const hint = document.getElementById('forgotHint');
+  hint.textContent = '';
+  if (!val) { showToast('Wpisz telefon albo e-mail z rejestracji.'); return; }
+
+  const btn = document.getElementById('btn-forgot');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/client-reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val }),
+    });
+    const data = await res.json();
+    if (!data.ok) { hint.textContent = data.error || 'Błąd resetu hasła.'; return; }
+    hint.textContent = 'Hasło zresetowane! Zaloguj się ponownie tym samym telefonem/e-mailem — poprosimy Cię o ustawienie nowego hasła.';
+    document.getElementById('lookup-value').value = val;
+  } catch (err) {
+    hint.textContent = 'Błąd połączenia z serwerem: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function toggleNew(){
   const el = document.getElementById('new-client-form');
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -374,7 +449,7 @@ function enterMain(id, name){
   document.getElementById('screen-who').style.display = 'none';
   document.getElementById('screen-main').style.display = 'block';
   document.getElementById('me-name').textContent = name;
-  if (document.querySelectorAll('.exercise-row').length === 0) { addExerciseRow(); addExerciseRow(); }
+  if (document.querySelectorAll('#exerciseRows .exercise-row').length === 0) { addExerciseRow(); addExerciseRow(); }
 
   const lastMeas = localStorage.getItem('tmw_last_meas_' + id);
   if (lastMeas) document.getElementById('lastMeasSent').textContent = '✅ Ostatnio wysłano: ' + lastMeas;
@@ -723,12 +798,15 @@ function showTab(which){
   document.getElementById('tab-meas').classList.toggle('active', which==='meas');
   document.getElementById('tab-train').classList.toggle('active', which==='train');
   document.getElementById('tab-plan').classList.toggle('active', which==='plan');
+  document.getElementById('tab-diet').classList.toggle('active', which==='diet');
   document.getElementById('tab-history').classList.toggle('active', which==='history');
   document.getElementById('panel-meas').style.display = which==='meas' ? 'block' : 'none';
   document.getElementById('panel-photo-compare').style.display = which==='meas' ? (document.getElementById('photoCompareBox').innerHTML ? 'block' : 'none') : 'none';
   document.getElementById('panel-train').style.display = which==='train' ? 'block' : 'none';
   document.getElementById('panel-plan').style.display = which==='plan' ? 'block' : 'none';
+  document.getElementById('panel-diet').style.display = which==='diet' ? 'block' : 'none';
   document.getElementById('panel-history').style.display = which==='history' ? 'block' : 'none';
+  if (which==='diet') loadDailyCheckins(localStorage.getItem('tmw_client_id'));
   if (which === 'history') loadHistory();
   if (which === 'plan') loadPlan();
 }
@@ -827,8 +905,9 @@ async function loadMeasHistory(clientId){
   list.innerHTML = '<div class="hint">Wczytywanie...</div>';
   const { data, error } = await sb.from('measurements').select('*').eq('client_id', clientId).order('measured_at', { ascending: false });
   if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
-  if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Nie masz jeszcze zapisanych pomiarów.</div>'; return; }
+  if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Nie masz jeszcze zapisanych pomiarów.</div>'; renderProgressChart([]); return; }
 
+  renderProgressChart(data);
   list.innerHTML = data.map(m => `
     <div class="history-item">
       <div class="hi-info">
@@ -841,6 +920,99 @@ async function loadMeasHistory(clientId){
       </div>
     </div>
   `).join('');
+}
+
+// ---------- DZIENNY CHECKIN ŻYWIENIOWY (BIAŁKO) ----------
+let selectedProteinOk = null;
+
+function setProteinOk(val){
+  selectedProteinOk = val;
+  document.getElementById('dc-yes').classList.toggle('selected', val === true);
+  document.getElementById('dc-no').classList.toggle('selected', val === false);
+}
+
+async function saveDailyCheckin(){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const date = document.getElementById('dc_date').value;
+  const note = document.getElementById('dc_note').value.trim() || null;
+  const hint = document.getElementById('checkinSavedHint');
+  if (!date) { showToast('Wybierz datę.'); return; }
+  if (selectedProteinOk === null) { showToast('Zaznacz Tak albo Nie.'); return; }
+
+  const btn = document.getElementById('btn-save-checkin');
+  btn.disabled = true;
+  try {
+    const { error } = await sb.from('daily_checkins')
+      .upsert({ client_id: clientId, checkin_date: date, protein_ok: selectedProteinOk, note }, { onConflict: 'client_id,checkin_date' });
+    if (error) throw error;
+    hint.textContent = 'Zapisano checkin na ' + date + '.';
+    document.getElementById('dc_note').value = '';
+    loadDailyCheckins(clientId);
+  } catch (err) {
+    hint.textContent = 'Błąd zapisu: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadDailyCheckins(clientId){
+  const list = document.getElementById('checkinHistoryList');
+  if (!list || !clientId) return;
+  list.innerHTML = '<div class="hint">Wczytywanie...</div>';
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data, error } = await sb.from('daily_checkins').select('*')
+    .eq('client_id', clientId).gte('checkin_date', since).order('checkin_date', { ascending: false });
+  if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  if (!data || !data.length) { list.innerHTML = '<div class="hint">Brak zapisanych checkinów z ostatnich 14 dni.</div>'; return; }
+  list.innerHTML = data.map(c => `
+    <div class="history-item">
+      <div class="hi-info">
+        <strong>${c.checkin_date}</strong>
+        <div class="hint">${c.protein_ok ? '✅ Białko OK' : '❌ Za mało białka'}${c.note ? ' · ' + escapeHtmlLocal(c.note) : ''}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+let progressChartInstance = null;
+function renderProgressChart(data){
+  const canvas = document.getElementById('progressChart');
+  const emptyMsg = document.getElementById('progressChartEmpty');
+  if (!canvas) return;
+  const rows = (data || []).filter(m => m.weight_kg !== null || m.waist_cm !== null).slice().sort((a,b) => a.measured_at.localeCompare(b.measured_at));
+  if (progressChartInstance) { progressChartInstance.destroy(); progressChartInstance = null; }
+  if (rows.length < 2) {
+    canvas.style.display = 'none';
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    return;
+  }
+  canvas.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  const labels = rows.map(m => m.measured_at);
+  const weightData = rows.map(m => m.weight_kg);
+  const waistData = rows.map(m => m.waist_cm);
+  const hasWeight = weightData.some(v => v !== null && v !== undefined);
+  const hasWaist = waistData.some(v => v !== null && v !== undefined);
+
+  const datasets = [];
+  if (hasWeight) datasets.push({ label: 'Waga (kg)', data: weightData, borderColor: '#a8875c', backgroundColor: 'rgba(168,135,92,0.15)', spanGaps: true, tension: 0.25, yAxisID: 'y' });
+  if (hasWaist) datasets.push({ label: 'Talia (cm)', data: waistData, borderColor: '#6b8f9c', backgroundColor: 'rgba(107,143,156,0.15)', spanGaps: true, tension: 0.25, yAxisID: hasWeight ? 'y1' : 'y' });
+
+  const scales = { x: { ticks: { color: '#767066' }, grid: { display: false } } };
+  if (hasWeight) scales.y = { position: 'left', ticks: { color: '#767066' }, grid: { color: '#eee' } };
+  if (hasWaist) scales[hasWeight ? 'y1' : 'y'] = Object.assign(scales[hasWeight ? 'y1' : 'y'] || {}, { position: hasWeight ? 'right' : 'left', ticks: { color: '#767066' }, grid: { drawOnChartArea: !hasWeight } });
+
+  progressChartInstance = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#1a1a1a' } } },
+      scales,
+    },
+  });
 }
 
 async function editMeasurement(id){
@@ -1174,7 +1346,7 @@ function updatePace(row){
 }
 
 function updateTotalVolume(){
-  const rows = Array.from(document.querySelectorAll('.exercise-row'));
+  const rows = Array.from(document.querySelectorAll('#exerciseRows .exercise-row'));
   let total = 0;
   rows.forEach(r => { total += parseFloat(r.dataset.volume || 0); });
   const el = document.getElementById('totalVolume');
@@ -1199,7 +1371,7 @@ function getExerciseName(row){
 async function saveWorkout(){
   const clientId = localStorage.getItem('tmw_client_id');
   const date = document.getElementById('t_date').value;
-  const rows = Array.from(document.querySelectorAll('.exercise-row'));
+  const rows = Array.from(document.querySelectorAll('#exerciseRows .exercise-row'));
   const withData = rows.filter(r => getExerciseName(r));
   if (withData.length === 0) { showToast('Dodaj przynajmniej jedno ćwiczenie (wybierz partię i ćwiczenie z listy).'); return; }
 
@@ -1304,6 +1476,8 @@ async function saveWorkout(){
     } else {
       showToast(editingDate ? 'Zmiany zapisane!' : ('Zapisano ' + entries.length + ' ćwiczeń. Dzięki!'));
     }
+    // Jeśli klient dopisał notatkę/pytanie do ćwiczenia — powiadom trenera e-mailem.
+    entries.filter(e => e.note).forEach(e => notifyReply('to_trainer', e.exercise_name, e.note));
     markSent('workout', clientId);
     cancelEditWorkout();
     loadHistory();
@@ -1432,7 +1606,7 @@ async function loadHistory(){
       </div>
       <div class="training-detail" id="hist-detail-${idx}" style="display:none;">
         ${rows.map(r => `
-          <div class="exercise-row">
+          <div class="history-exercise-item">
             <strong>${escapeHtmlLocal(r.exercise_name||'')}</strong><br>
             ${formatHistoryDetails(r)}
             ${r.video_url ? '<br><a href="'+r.video_url+'" target="_blank">▶ zobacz wideo</a>' : ''}
@@ -1497,19 +1671,32 @@ function renderThread(r, comments){
   parts.push(`
     <div class="reply-box">
       <input type="text" id="client-reply-${r.id}" placeholder="Odpowiedz trenerowi...">
-      <button class="btn secondary" onclick="sendClientReply('${r.id}')">Wyślij</button>
+      <button class="btn secondary" onclick="sendClientReply('${r.id}', '${escapeHtmlLocal(r.exercise_name || '').replace(/'/g, "\\'")}')">Wyślij</button>
     </div>
   `);
   return parts.join('');
 }
 
-async function sendClientReply(exerciseLogId){
+async function sendClientReply(exerciseLogId, exerciseName){
   const input = document.getElementById('client-reply-' + exerciseLogId);
   const text = input.value.trim();
   if (!text) return;
   const { error } = await sb.from('exercise_log_comments').insert({ exercise_log_id: exerciseLogId, sender: 'client', message: text });
   if (error) { showToast('Błąd wysyłania: ' + error.message); return; }
+  notifyReply('to_trainer', exerciseName, text);
   loadHistory();
+}
+
+// Powiadomienie e-mail (fire-and-forget) — błąd wysyłki nie powinien przerywać
+// normalnego działania apki, dlatego zawsze łapiemy wyjątek i tylko logujemy do konsoli.
+function notifyReply(direction, exerciseName, message){
+  const clientId = localStorage.getItem('tmw_client_id');
+  if (!clientId) return;
+  fetch('/api/notify-reply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ direction, clientId, exerciseName, message }),
+  }).catch(err => console.warn('notify-reply błąd:', err));
 }
 
 async function deleteWorkoutDate(date){
@@ -1605,6 +1792,13 @@ function cancelEditWorkout(){
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
   addExerciseRow();
   addExerciseRow();
+}
+
+// Rejestracja Service Workera — pozwala zainstalować apkę na ekranie głównym telefonu.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW rejestracja nieudana:', err));
+  });
 }
 </script>
 </body>
