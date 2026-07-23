@@ -1147,7 +1147,7 @@ function addExerciseRow(prefill){
   }
 
   if (row.querySelector('.sets-list').children.length === 0) {
-    addSetRow(row, 10, 20); addSetRow(row, 10, 20); addSetRow(row, 10, 20);
+    addSetRow(row); addSetRow(row); addSetRow(row);
   }
 
   updateRowVolume(row);
@@ -1162,8 +1162,8 @@ function addSetRow(row, reps, weight){
   setRow.className = 'set-row';
   setRow.innerHTML = `
     <span class="set-label">Seria ${n}</span>
-    <input type="number" class="set-reps" placeholder="Powt." value="${reps ?? 10}" oninput="onRowInput(this)">
-    <input type="number" step="0.5" class="set-weight" placeholder="Ciężar (kg)" value="${weight ?? 20}" oninput="onRowInput(this)">
+    <input type="number" class="set-reps" placeholder="Powt." value="${reps ?? ''}" oninput="onRowInput(this)">
+    <input type="number" step="0.5" class="set-weight" placeholder="Ciężar (kg)" value="${weight ?? ''}" oninput="onRowInput(this)">
     <button type="button" class="set-timer" title="Start odpoczynku (2:00)" onclick="startRestTimer(this.closest('.exercise-row'))">⏱</button>
     <button type="button" class="set-remove" title="Usuń serię" onclick="removeSetRow(this)">✕</button>
   `;
