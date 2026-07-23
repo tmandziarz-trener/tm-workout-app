@@ -870,6 +870,11 @@ async function saveReply(exerciseLogId, hasFirstReply){
   if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
   const row = currentSets.find(s => s.id === exerciseLogId);
   notifyReply('to_client', row ? row.exercise_name : null, text);
+  // Odpowiadając, automatycznie oznacz wiadomości klienta w tym wątku jako przeczytane —
+  // bez tego licznik "nowych wiadomości" potrafił zostać na stałe nieaktualny (oznaczanie
+  // działało wcześniej tylko przy rozwinięciu dnia, a nie przy samej odpowiedzi).
+  const clientKeys = (currentComments[exerciseLogId] || []).filter(c => c.sender === 'client').map(c => 'c_' + c.id);
+  if (clientKeys.length) markTrainerSeen(clientKeys);
   loadClient();
   loadAllClientsOverview(allClientsCache);
 }

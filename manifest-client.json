@@ -1,8 +1,9 @@
 {
+  "id": "/index.html",
   "name": "TM Workout — Panel Klienta",
   "short_name": "TM Workout",
   "start_url": "/index.html",
-  "scope": "/",
+  "scope": "/index.html",
   "display": "standalone",
   "background_color": "#f5f4f2",
   "theme_color": "#a8875c",
