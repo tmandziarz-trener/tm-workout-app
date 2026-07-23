@@ -454,11 +454,6 @@ function enterMain(id, name){
   document.getElementById('me-name').textContent = name;
   if (document.querySelectorAll('#exerciseRows .exercise-row').length === 0) { addExerciseRow(); addExerciseRow(); }
 
-  const lastMeas = localStorage.getItem('tmw_last_meas_' + id);
-  if (lastMeas) document.getElementById('lastMeasSent').textContent = '✅ Ostatnio wysłano: ' + lastMeas;
-  const lastWorkout = localStorage.getItem('tmw_last_workout_' + id);
-  if (lastWorkout) document.getElementById('lastWorkoutSent').textContent = '✅ Ostatnio wysłano: ' + lastWorkout;
-
   loadProfileSummary(id);
   checkWeeklyReport(id);
   loadWeeklyTrainingCount(id);
@@ -466,6 +461,7 @@ function enterMain(id, name){
   loadGoal(id);
   loadPhotoComparison(id);
   loadMeasHistory(id);
+  loadLastWorkoutSent(id);
   checkNewReplies(id);
   loadPRs(id);
 }
@@ -784,11 +780,25 @@ async function checkWeeklyReport(clientId){
   }
 }
 
-function markSent(kind, clientId){
-  const now = new Date().toLocaleString('pl-PL');
-  localStorage.setItem('tmw_last_' + kind + '_' + clientId, now);
-  const elId = kind === 'meas' ? 'lastMeasSent' : 'lastWorkoutSent';
-  document.getElementById(elId).textContent = '✅ Ostatnio wysłano: ' + now;
+// Pokazuje prawdziwą datę ostatniego zapisu na podstawie danych z bazy (kolumna created_at —
+// serwerowy znacznik czasu ustawiany przy zapisie), a NIE lokalnego localStorage na tym
+// urządzeniu. localStorage psuł się, gdy klient korzystał z apki na więcej niż jednym
+// urządzeniu/przeglądarce — pokazywał starą datę z tego konkretnego urządzenia, mimo że
+// najnowszy wpis faktycznie trafił do bazy z innego miejsca.
+function updateLastSentLabel(elId, rows){
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!rows || !rows.length) { el.textContent = ''; return; }
+  const latest = rows.reduce((max, r) => (!max || (r.created_at && r.created_at > max)) ? r.created_at : max, null);
+  if (!latest) { el.textContent = ''; return; }
+  el.textContent = '✅ Ostatnio wysłano: ' + new Date(latest).toLocaleString('pl-PL');
+}
+
+// Lekkie zapytanie tylko po to, żeby od razu po wejściu do apki (zanim klient w ogóle
+// otworzy zakładkę "Historia") pokazać prawdziwą datę ostatniego zapisanego treningu.
+async function loadLastWorkoutSent(clientId){
+  const { data } = await sb.from('exercise_logs').select('created_at').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1);
+  updateLastSentLabel('lastWorkoutSent', data);
 }
 
 function logout(){
@@ -873,7 +883,6 @@ async function saveMeasurement(){
     if (error) throw error;
 
     showToast(editingMeasId ? 'Pomiar zaktualizowany!' : 'Pomiar zapisany. Dzięki!');
-    markSent('meas', clientId);
     checkWeeklyReport(clientId);
     loadProfileSummary(clientId);
     loadGoal(clientId);
@@ -908,6 +917,7 @@ async function loadMeasHistory(clientId){
   list.innerHTML = '<div class="hint">Wczytywanie...</div>';
   const { data, error } = await sb.from('measurements').select('*').eq('client_id', clientId).order('measured_at', { ascending: false });
   if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  updateLastSentLabel('lastMeasSent', data);
   if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Nie masz jeszcze zapisanych pomiarów.</div>'; renderProgressChart([]); return; }
 
   renderProgressChart(data);
@@ -1481,7 +1491,6 @@ async function saveWorkout(){
     }
     // Jeśli klient dopisał notatkę/pytanie do ćwiczenia — powiadom trenera e-mailem.
     entries.filter(e => e.note).forEach(e => notifyReply('to_trainer', e.exercise_name, e.note));
-    markSent('workout', clientId);
     cancelEditWorkout();
     loadHistory();
     loadWeeklyTrainingCount(clientId);
@@ -1560,6 +1569,7 @@ async function loadHistory(){
   list.innerHTML = '<div class="hint">Wczytywanie...</div>';
   const { data, error } = await sb.from('exercise_logs').select('*').eq('client_id', clientId).order('logged_at', { ascending: false });
   if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  updateLastSentLabel('lastWorkoutSent', data);
 
   renderExerciseTrendClient(data || []);
 
