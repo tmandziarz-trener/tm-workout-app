@@ -10,6 +10,8 @@
 <meta name="theme-color" content="#a8875c">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
 <script src="exercises.js"></script>
 </head>
 <body>
@@ -60,18 +62,9 @@
         </div>
       </div>
       <div id="trainerClientReplyBanner" class="alert-banner reply" style="display:none;"></div>
-      <div id="trainerPrBox" style="display:none;"></div>
-      <div class="card center">
-        <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
-        <button class="btn secondary" id="btnExportCsv" style="margin-top:10px;" onclick="exportClientCsv()">📥 Eksportuj dane do CSV</button>
-      </div>
       <div class="card">
         <h2>🚩 Uwagi</h2>
         <div id="flagsBox"></div>
-      </div>
-      <div class="card">
-        <h2>🍗 Dieta — checkin (7 dni)</h2>
-        <div id="dietSummaryBox"><div class="hint">Wczytywanie...</div></div>
       </div>
       <div class="card">
         <h2>🎯 Cel klienta</h2>
@@ -96,10 +89,21 @@
         <button class="btn secondary" onclick="saveGoal()">Zapisz cel</button>
         <div class="hint" id="goalHint"></div>
       </div>
+      <div class="card center">
+        <button class="btn" id="btnReport" onclick="openReport()">📄 Generuj raport dla klienta</button>
+        <button class="btn secondary" id="btnExportCsv" style="margin-top:10px;" onclick="exportClientCsv()">📥 Eksportuj dane do CSV</button>
+      </div>
+      <div class="card">
+        <h2>🍗 Dieta — checkin (7 dni)</h2>
+        <div id="dietSummaryBox"><div class="hint">Wczytywanie...</div></div>
+      </div>
       <div class="card">
         <h2>Plan treningowy klienta</h2>
         <div class="sub">Klient zobaczy te ćwiczenia w zakładce "Plan" i będzie mógł je wstawić do treningu jednym kliknięciem.</div>
         <div id="planItemsList"></div>
+
+        <div class="spacer"></div>
+        <h2 style="margin-top:10px;font-size:16px;">Dodaj jedno ćwiczenie</h2>
         <div class="plan-editor-row">
           <input type="text" id="planExName" placeholder="Nazwa ćwiczenia">
           <input type="number" id="planExSets" placeholder="Serie" style="width:70px;">
@@ -107,7 +111,36 @@
           <input type="number" step="0.5" id="planExWeight" placeholder="Kg" style="width:80px;">
         </div>
         <button class="btn ghost ghost" style="width:100%;margin-top:8px;" onclick="addPlanItem()">+ dodaj do planu</button>
+
+        <div class="spacer"></div>
+        <h2 style="margin-top:10px;font-size:16px;">Dodaj cały plan naraz</h2>
+        <div class="sub">
+          Masz plan gotowy w Wordzie albo Excelu? Wczytaj plik — spróbuję sam rozpoznać ćwiczenia
+          (najlepiej działa, gdy plan jest w tabeli: ćwiczenie / serie / powtórzenia / kg).
+          Możesz też po prostu wkleić plan jako tekst, jedna pozycja na linię, np.
+          "Wyciskanie sztangi płasko 4x10x40kg".
+        </div>
+        <div class="field">
+          <label>Wczytaj z pliku (.docx, .xlsx, .xls)</label>
+          <input type="file" id="planFileInput" accept=".docx,.xlsx,.xls" onchange="handlePlanFileUpload(this)">
+        </div>
+        <div class="field">
+          <label>...albo wklej plan tutaj</label>
+          <textarea id="planBulkText" rows="5" placeholder="Wyciskanie sztangi płasko 4x10x40kg&#10;Przysiad ze sztangą 4x8x60kg&#10;Martwy ciąg 3x5"></textarea>
+        </div>
+        <button class="btn secondary" style="width:100%;" onclick="previewPlanFromText()">Pokaż podgląd</button>
+        <div class="hint" id="planImportHint" style="margin-top:8px;"></div>
+
+        <div id="planPreviewCard" style="display:none;margin-top:14px;border:1px solid var(--border);border-radius:10px;padding:12px;">
+          <div class="sub">Rozpoznano <strong id="planPreviewCount">0</strong> ćwiczeń — sprawdź i popraw, jeśli coś jest nie tak, zanim dodasz do planu.</div>
+          <div id="planPreviewBox" style="overflow-x:auto;"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn" onclick="commitPlanPreview()">Dodaj do planu</button>
+            <button class="btn secondary" onclick="cancelPlanPreview()">Anuluj</button>
+          </div>
+        </div>
       </div>
+      <div id="trainerPrBox" style="display:none;"></div>
       <div class="card">
         <div class="stat-row" id="statRow"></div>
         <canvas id="weightChart"></canvas>
@@ -588,6 +621,185 @@ async function addPlanItem(){
 async function removePlanItem(itemId){
   const { error } = await sb.from('training_plan_items').delete().eq('id', itemId);
   if (error) { alert('Błąd usuwania: ' + error.message); return; }
+  loadPlanItems(currentClientId);
+}
+
+// ---------- IMPORT CAŁEGO PLANU (WKLEJONY TEKST ALBO PLIK WORD/EXCEL) ----------
+// Pomysł: zamiast dodawać ćwiczenia jedno po drugim, trener wkleja cały plan (albo wczytuje
+// gotowy plik) — apka sama próbuje rozpoznać ćwiczenia, pokazuje podgląd do sprawdzenia,
+// i dopiero po akceptacji zapisuje wszystko jedną paczką.
+let planPreviewItems = [];
+
+function parsePlanNum(s){
+  if (s === null || s === undefined) return null;
+  const m = String(s).replace(',', '.').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+function looksLikePlanHeaderRow(cells){
+  const joined = cells.join(' ').toLowerCase();
+  return /ćwiczen|cwiczen|nazwa|exercise/.test(joined) && /seri|set|powt|rep|kg|ciężar|ciezar/.test(joined);
+}
+
+// Rozpoznaje pojedynczą linię wklejonego tekstu — obsługuje wklejoną tabelę (tabulatory),
+// format "Nazwa 4x10x40kg", "Nazwa, 4, 10, 40" albo samą nazwę ćwiczenia bez liczb.
+function parsePlanLine(line){
+  const raw = line.trim();
+  if (!raw) return null;
+
+  let cells = null;
+  if (raw.includes('\t')) cells = raw.split('\t').map(c => c.trim()).filter(c => c !== '');
+  else if (raw.includes('|')) cells = raw.split('|').map(c => c.trim()).filter(c => c !== '');
+  else if (raw.includes(';')) cells = raw.split(';').map(c => c.trim()).filter(c => c !== '');
+
+  if (cells && cells.length >= 2) {
+    return { name: cells[0], sets: parsePlanNum(cells[1]), reps: parsePlanNum(cells[2]), weight: parsePlanNum(cells[3]) };
+  }
+
+  // "Nazwa 4x10x40kg" / "Nazwa 4 x 10 x 40 kg"
+  const m3 = raw.match(/^(.*?)[\s,-]*(\d+)\s*[x×]\s*(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)/i);
+  if (m3) return { name: (m3[1].trim().replace(/[-,]+$/, '') || raw), sets: parsePlanNum(m3[2]), reps: parsePlanNum(m3[3]), weight: parsePlanNum(m3[4]) };
+
+  // "Nazwa 4x10" (bez ciężaru)
+  const m2 = raw.match(/^(.*?)[\s,-]*(\d+)\s*[x×]\s*(\d+)\s*$/i);
+  if (m2) return { name: (m2[1].trim().replace(/[-,]+$/, '') || raw), sets: parsePlanNum(m2[2]), reps: parsePlanNum(m2[3]), weight: null };
+
+  // "Nazwa, 4, 10, 40"
+  if (raw.includes(',')) {
+    const parts = raw.split(',').map(c => c.trim()).filter(c => c !== '');
+    if (parts.length >= 2 && parts.slice(1).some(p => parsePlanNum(p) !== null)) {
+      return { name: parts[0], sets: parsePlanNum(parts[1]), reps: parsePlanNum(parts[2]), weight: parsePlanNum(parts[3]) };
+    }
+  }
+
+  // Sama nazwa, bez żadnych liczb — trener uzupełni serie/powtórzenia/kg później.
+  return { name: raw, sets: null, reps: null, weight: null };
+}
+
+function parsePlanText(text){
+  return (text || '').split('\n').map(parsePlanLine).filter(Boolean).filter(it => it.name);
+}
+
+// Dla danych z prawdziwej tabeli (Excel albo tabela w Wordzie) — kolumny są już rozdzielone,
+// więc nie trzeba zgadywać formatu z tekstu. Wykrywa i pomija wiersz nagłówka, jeśli jest.
+function parsePlanTableRows(rows){
+  const dataRows = (rows || []).filter(r => r.some(c => String(c ?? '').trim() !== ''));
+  if (!dataRows.length) return [];
+  let startIdx = 0;
+  if (looksLikePlanHeaderRow(dataRows[0].map(c => String(c ?? '')))) startIdx = 1;
+  const items = [];
+  for (let i = startIdx; i < dataRows.length; i++) {
+    const r = dataRows[i];
+    const name = String(r[0] ?? '').trim();
+    if (!name) continue;
+    items.push({ name, sets: parsePlanNum(r[1]), reps: parsePlanNum(r[2]), weight: parsePlanNum(r[3]) });
+  }
+  return items;
+}
+
+function renderPlanPreview(){
+  const card = document.getElementById('planPreviewCard');
+  const box = document.getElementById('planPreviewBox');
+  if (!planPreviewItems.length) { card.style.display = 'none'; box.innerHTML = ''; return; }
+  card.style.display = 'block';
+  document.getElementById('planPreviewCount').textContent = planPreviewItems.length;
+  box.innerHTML = '<table class="all-clients-table">' +
+    '<tr><th>Ćwiczenie</th><th>Serie</th><th>Powt.</th><th>Kg</th><th></th></tr>' +
+    planPreviewItems.map((it, i) => `
+      <tr>
+        <td>${escapeHtml(it.name)}</td>
+        <td>${it.sets ?? '-'}</td>
+        <td>${it.reps ?? '-'}</td>
+        <td>${it.weight ?? '-'}</td>
+        <td><button class="btn danger" style="width:auto;padding:4px 8px;font-size:12px;" onclick="removePlanPreviewItem(${i})">✕</button></td>
+      </tr>
+    `).join('') +
+    '</table>';
+}
+
+function removePlanPreviewItem(i){
+  planPreviewItems.splice(i, 1);
+  renderPlanPreview();
+}
+
+function cancelPlanPreview(){
+  planPreviewItems = [];
+  document.getElementById('planBulkText').value = '';
+  document.getElementById('planImportHint').textContent = '';
+  renderPlanPreview();
+}
+
+function previewPlanFromText(){
+  const items = parsePlanText(document.getElementById('planBulkText').value);
+  const hint = document.getElementById('planImportHint');
+  if (!items.length) { hint.textContent = 'Nie znalazłem żadnych ćwiczeń — wpisz przynajmniej jedną linię tekstu.'; return; }
+  hint.textContent = '';
+  planPreviewItems = items;
+  renderPlanPreview();
+}
+
+async function handlePlanFileUpload(input){
+  const file = input.files[0];
+  if (!file) return;
+  const hint = document.getElementById('planImportHint');
+  hint.textContent = 'Wczytuję plik...';
+  const lower = file.name.toLowerCase();
+  try {
+    if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
+      planPreviewItems = parsePlanTableRows(rows);
+    } else if (lower.endsWith('.docx')) {
+      const buf = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+      const tmp = document.createElement('div');
+      tmp.innerHTML = result.value;
+      const table = tmp.querySelector('table');
+      if (table) {
+        const rows = Array.from(table.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('td,th')).map(td => td.textContent.trim()));
+        planPreviewItems = parsePlanTableRows(rows);
+      } else {
+        planPreviewItems = parsePlanText(tmp.textContent || '');
+      }
+    } else {
+      hint.textContent = 'Obsługiwane pliki: .docx, .xlsx, .xls';
+      input.value = '';
+      return;
+    }
+    if (!planPreviewItems.length) {
+      hint.textContent = 'Nie udało się rozpoznać ćwiczeń w tym pliku — spróbuj wkleić plan ręcznie w pole tekstowe poniżej.';
+    } else {
+      hint.textContent = '';
+    }
+    renderPlanPreview();
+  } catch (err) {
+    hint.textContent = 'Błąd wczytywania pliku: ' + err.message;
+  } finally {
+    input.value = '';
+  }
+}
+
+async function commitPlanPreview(){
+  if (!planPreviewItems.length || !currentClientId) return;
+  const { data: existing } = await sb.from('training_plan_items')
+    .select('order_index').eq('client_id', currentClientId).order('order_index', { ascending: false }).limit(1);
+  let nextIndex = (existing && existing.length && existing[0].order_index !== null && existing[0].order_index !== undefined) ? existing[0].order_index + 1 : 0;
+  const rows = planPreviewItems.map((it, i) => ({
+    client_id: currentClientId,
+    exercise_name: it.name,
+    target_sets: it.sets,
+    target_reps: it.reps,
+    target_weight_kg: it.weight,
+    order_index: nextIndex + i,
+  }));
+  const { error } = await sb.from('training_plan_items').insert(rows);
+  if (error) { alert('Błąd zapisu planu: ' + error.message); return; }
+  planPreviewItems = [];
+  document.getElementById('planBulkText').value = '';
+  document.getElementById('planImportHint').textContent = '';
+  renderPlanPreview();
   loadPlanItems(currentClientId);
 }
 
