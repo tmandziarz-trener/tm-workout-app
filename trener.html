@@ -99,11 +99,22 @@
       </div>
       <div class="card">
         <h2>Plan treningowy klienta</h2>
-        <div class="sub">Klient zobaczy te ćwiczenia w zakładce "Plan" i będzie mógł je wstawić do treningu jednym kliknięciem.</div>
+        <div class="sub">Możesz przygotować kilka osobnych planów (np. Push/Pull/Nogi) — klient zobaczy je w zakładce "Plan" jako osobne bloki i wybierze, który dodać do treningu w danym dniu.</div>
+
+        <div class="field">
+          <label>Który plan edytujesz</label>
+          <select id="planNameSelect" onchange="onPlanNameSelectChange(this.value)"></select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn ghost" style="flex:1;" onclick="startNewPlanName()">+ Nowy plan</button>
+          <button class="btn danger" style="flex:1;" onclick="removeWholePlan()">Usuń cały ten plan</button>
+        </div>
+
         <div id="planItemsList"></div>
 
         <div class="spacer"></div>
         <h2 style="margin-top:10px;font-size:16px;">Dodaj jedno ćwiczenie</h2>
+        <div class="sub">Trafi do planu wybranego wyżej w polu "Który plan edytujesz".</div>
         <div class="plan-editor-row">
           <input type="text" id="planExName" placeholder="Nazwa ćwiczenia">
           <input type="number" id="planExSets" placeholder="Serie" style="width:70px;">
@@ -115,7 +126,7 @@
         <div class="spacer"></div>
         <h2 style="margin-top:10px;font-size:16px;">Dodaj cały plan naraz</h2>
         <div class="sub">
-          Masz plan gotowy w Wordzie albo Excelu? Wczytaj plik — spróbuję sam rozpoznać ćwiczenia
+          Też trafi do planu wybranego wyżej. Masz plan gotowy w Wordzie albo Excelu? Wczytaj plik — spróbuję sam rozpoznać ćwiczenia
           (najlepiej działa, gdy plan jest w tabeli: ćwiczenie / serie / powtórzenia / kg).
           Możesz też po prostu wkleić plan jako tekst, jedna pozycja na linię, np.
           "Wyciskanie sztangi płasko 4x10x40kg".
@@ -358,6 +369,7 @@ let trainingDayKeys = {}; // idx dnia w "Treningi klienta" -> [klucze wiadomośc
 async function loadClient(){
   const id = document.getElementById('clientSelect').value;
   currentClientId = id || null;
+  currentPlanName = null; // przy zmianie klienta wracamy do jego pierwszego planu (nie zostajemy przy nazwie z poprzedniego klienta)
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
@@ -580,13 +592,30 @@ function todayStrTrener(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-// ---------- PLAN TRENINGOWY ----------
+// ---------- PLAN TRENINGOWY (może być kilka osobnych planów per klient) ----------
+// currentPlanName trzyma nazwę planu aktualnie edytowanego w tym panelu (np. "Plan A —
+// Push"). Trener może mieć kilka planów dla jednego klienta — klient wybiera potem
+// w swojej apce, który z nich dodać do treningu w danym dniu.
+let currentPlanName = null;
+
 async function loadPlanItems(clientId){
   const list = document.getElementById('planItemsList');
-  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  const sel = document.getElementById('planNameSelect');
+  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('plan_name').order('order_index');
   if (error) { list.innerHTML = '<div class="hint">Błąd: ' + error.message + '</div>'; return; }
-  if (!data || data.length === 0) { list.innerHTML = '<div class="hint">Brak jeszcze pozycji w planie.</div>'; return; }
-  list.innerHTML = data.map(item => `
+
+  const planNames = Array.from(new Set((data || []).map(it => it.plan_name || 'Plan A')));
+  if (!planNames.length) planNames.push('Plan A');
+  if (!currentPlanName || !planNames.includes(currentPlanName)) currentPlanName = planNames[0];
+
+  sel.innerHTML = planNames.map(n => `<option value="${escapeHtml(n)}" ${n === currentPlanName ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+
+  const items = (data || []).filter(it => (it.plan_name || 'Plan A') === currentPlanName);
+  if (!items.length) {
+    list.innerHTML = '<div class="hint">Ten plan jest jeszcze pusty — dodaj do niego ćwiczenia poniżej.</div>';
+    return;
+  }
+  list.innerHTML = items.map(item => `
     <div class="plan-item">
       <div class="hi-info">
         <strong>${escapeHtml(item.exercise_name)}</strong>
@@ -597,6 +626,33 @@ async function loadPlanItems(clientId){
   `).join('');
 }
 
+function onPlanNameSelectChange(value){
+  currentPlanName = value;
+  loadPlanItems(currentClientId);
+}
+
+function startNewPlanName(){
+  const name = prompt('Nazwa nowego planu (np. "Plan A — Push", "Siłownia — wtorek"):');
+  if (!name || !name.trim()) return;
+  currentPlanName = name.trim();
+  // Nowy plan nie ma jeszcze żadnych pozycji w bazie — pokaż go od razu jako aktualnie
+  // edytowany; naprawdę pojawi się w bazie dopiero po dodaniu pierwszego ćwiczenia.
+  const sel = document.getElementById('planNameSelect');
+  const opt = document.createElement('option');
+  opt.value = currentPlanName; opt.textContent = currentPlanName; opt.selected = true;
+  sel.appendChild(opt);
+  document.getElementById('planItemsList').innerHTML = '<div class="hint">Nowy plan — dodaj pierwsze ćwiczenie poniżej.</div>';
+}
+
+async function removeWholePlan(){
+  if (!currentClientId || !currentPlanName) return;
+  if (!confirm('Na pewno usunąć CAŁY plan "' + currentPlanName + '" (wszystkie ćwiczenia w nim)?')) return;
+  const { error } = await sb.from('training_plan_items').delete().eq('client_id', currentClientId).eq('plan_name', currentPlanName);
+  if (error) { alert('Błąd usuwania planu: ' + error.message); return; }
+  currentPlanName = null;
+  loadPlanItems(currentClientId);
+}
+
 async function addPlanItem(){
   const id = currentClientId;
   if (!id) return;
@@ -604,6 +660,7 @@ async function addPlanItem(){
   if (!name) { alert('Podaj nazwę ćwiczenia.'); return; }
   const payload = {
     client_id: id,
+    plan_name: currentPlanName || 'Plan A',
     exercise_name: name,
     target_sets: document.getElementById('planExSets').value || null,
     target_reps: document.getElementById('planExReps').value || null,
@@ -783,11 +840,13 @@ async function handlePlanFileUpload(input){
 
 async function commitPlanPreview(){
   if (!planPreviewItems.length || !currentClientId) return;
+  const planName = currentPlanName || 'Plan A';
   const { data: existing } = await sb.from('training_plan_items')
-    .select('order_index').eq('client_id', currentClientId).order('order_index', { ascending: false }).limit(1);
+    .select('order_index').eq('client_id', currentClientId).eq('plan_name', planName).order('order_index', { ascending: false }).limit(1);
   let nextIndex = (existing && existing.length && existing[0].order_index !== null && existing[0].order_index !== undefined) ? existing[0].order_index + 1 : 0;
   const rows = planPreviewItems.map((it, i) => ({
     client_id: currentClientId,
+    plan_name: planName,
     exercise_name: it.name,
     target_sets: it.sets,
     target_reps: it.reps,

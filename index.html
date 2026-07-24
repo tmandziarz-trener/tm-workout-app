@@ -208,7 +208,7 @@
         </div>
         <div class="hint">Opcjonalne — trener to widzi i szybciej zareaguje, jeśli coś nie idzie dobrze.</div>
       </div>
-      <button class="btn secondary" style="width:100%;margin-bottom:10px;" onclick="insertWholePlan()">📋 Dodaj cały plan do treningu</button>
+      <div class="hint" style="margin-bottom:10px;">Masz przypisany plan od trenera? Wejdź w zakładkę „Plan” — tam dodasz cały wybrany plan do treningu jednym kliknięciem.</div>
       <div id="exerciseRows"></div>
       <button class="btn ghost" style="width:100%;margin-bottom:14px;" onclick="addExerciseRow()">+ dodaj ćwiczenie</button>
       <div class="stat" style="margin-bottom:14px;">
@@ -224,8 +224,7 @@
     <!-- ----- PLAN TRENINGOWY ----- -->
     <div id="panel-plan" class="card" style="display:none;">
       <h2>Twój plan treningowy</h2>
-      <div class="sub">Plan przygotowany przez trenera. Kliknij "Wstaw do treningu" przy pojedynczym ćwiczeniu, albo dodaj cały plan naraz przyciskiem poniżej i uzupełnij serie, powtórzenia i ciężar w logu treningu.</div>
-      <button class="btn" style="width:100%;margin-bottom:14px;" onclick="insertWholePlan()">📋 Dodaj cały plan do treningu</button>
+      <div class="sub">Trener mógł przygotować kilka planów (np. na różne dni). Kliknij "Wstaw do treningu" przy pojedynczym ćwiczeniu, albo dodaj cały wybrany plan naraz i uzupełnij serie, powtórzenia i ciężar w logu treningu.</div>
       <div id="planList"></div>
     </div>
 
@@ -717,19 +716,37 @@ async function loadPlan(){
   const list = document.getElementById('planList');
   if (!list) return;
   list.innerHTML = '<div class="hint">Wczytywanie...</div>';
-  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('plan_name').order('order_index');
   if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
   if (!data || data.length === 0) {
     list.innerHTML = '<div class="hint">Trener nie przypisał Ci jeszcze planu treningowego.</div>';
     return;
   }
-  list.innerHTML = data.map(item => `
-    <div class="plan-item">
-      <div class="hi-info">
-        <strong>${escapeHtmlLocal(item.exercise_name)}</strong>
-        <div class="hint">${item.target_sets ?? '-'} serie × ${item.target_reps ?? '-'} powt. @ ${item.target_weight_kg ?? '-'} kg</div>
+
+  // Trener może przygotować kilka osobnych planów (np. Push/Pull/Nogi) — grupujemy
+  // po nazwie planu, żeby klient widział je jako osobne bloki i mógł wybrać, który
+  // dodać do dzisiejszego treningu.
+  const byPlan = {};
+  data.forEach(item => {
+    const pn = item.plan_name || 'Plan A';
+    (byPlan[pn] = byPlan[pn] || []).push(item);
+  });
+
+  list.innerHTML = Object.keys(byPlan).map(planName => `
+    <div class="plan-group" style="margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+        <strong style="font-size:15px;">${escapeHtmlLocal(planName)}</strong>
+        <button class="btn" style="width:auto;flex-shrink:0;" onclick='insertWholePlan(${JSON.stringify(planName).replace(/'/g,"&#39;")})'>📋 Dodaj ten plan</button>
       </div>
-      <button class="btn secondary" onclick='insertPlanItem(${JSON.stringify(item).replace(/'/g,"&#39;")})'>Wstaw do treningu</button>
+      ${byPlan[planName].map(item => `
+        <div class="plan-item">
+          <div class="hi-info">
+            <strong>${escapeHtmlLocal(item.exercise_name)}</strong>
+            <div class="hint">${item.target_sets ?? '-'} serie × ${item.target_reps ?? '-'} powt. @ ${item.target_weight_kg ?? '-'} kg</div>
+          </div>
+          <button class="btn secondary" onclick='insertPlanItem(${JSON.stringify(item).replace(/'/g,"&#39;")})'>Wstaw do treningu</button>
+        </div>
+      `).join('')}
     </div>
   `).join('');
 }
@@ -747,12 +764,16 @@ function insertPlanItem(item){
   showToast('Dodano "' + item.exercise_name + '" z planu — ustaw datę i zapisz trening.');
 }
 
-// Dodaje CAŁY plan naraz do logu treningu — same nazwy ćwiczeń i tyle pustych serii,
-// ile trener zaplanował (albo 3, jeśli nie ustawił), bez podpowiadania konkretnych
+// Dodaje CAŁY wybrany plan naraz do logu treningu — same nazwy ćwiczeń i tyle pustych
+// serii, ile trener zaplanował (albo 3, jeśli nie ustawił), bez podpowiadania konkretnych
 // powtórzeń/ciężaru. Klient sam wpisuje, co faktycznie zrobił na dzisiejszym treningu.
-async function insertWholePlan(){
+// Gdy trener przygotował kilka planów (np. Push/Pull/Nogi), planName wskazuje, który
+// dokładnie plan wstawić — przyciski w zakładce "Plan" wywołują to osobno dla każdego.
+async function insertWholePlan(planName){
   const clientId = localStorage.getItem('tmw_client_id');
-  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  let query = sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  if (planName) query = query.eq('plan_name', planName);
+  const { data, error } = await query;
   if (error) { showToast('Błąd wczytywania planu: ' + error.message); return; }
   if (!data || !data.length) { showToast('Nie masz jeszcze przypisanego planu treningowego.'); return; }
 
@@ -763,7 +784,7 @@ async function insertWholePlan(){
   data.forEach(item => {
     addExerciseRow({ exercise_name: item.exercise_name, sets: item.target_sets || 3 });
   });
-  showToast('Dodano cały plan (' + data.length + ' ćwiczeń) — uzupełnij serie, powtórzenia i ciężar.');
+  showToast('Dodano plan' + (planName ? ' "' + planName + '"' : '') + ' (' + data.length + ' ćwiczeń) — uzupełnij serie, powtórzenia i ciężar.');
 }
 
 // ---------- SAMOPOCZUCIE ----------
