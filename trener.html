@@ -202,18 +202,18 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- POWIADOMIENIA O NOWYCH WIADOMOŚCIACH OD KLIENTÓW ----------
-// Śledzone lokalnie na tym urządzeniu (localStorage), klucz 'c_<id>' dla każdej
-// wiadomości klienta (exercise_log_comments, sender='client') już przez Ciebie widzianej.
-function getTrainerSeenIds(){
-  try { return new Set(JSON.parse(localStorage.getItem('tmw_trainer_seen_replies') || '[]')); }
-  catch (e) { return new Set(); }
-}
-
-function markTrainerSeen(keys){
-  if (!keys.length) return;
-  const s = getTrainerSeenIds();
-  keys.forEach(k => s.add(k));
-  localStorage.setItem('tmw_trainer_seen_replies', JSON.stringify(Array.from(s)));
+// Wątek wiadomości: notatka klienta (note) -> pierwsza odpowiedź trenera (trainer_reply)
+// -> dalsze wiadomości na zmianę w exercise_log_comments. "Czeka na odpowiedź" znaczy
+// po prostu: ostatnia wiadomość w wątku jest od klienta. Liczone wyłącznie z bazy danych,
+// więc działa tak samo na telefonie i na komputerze — dawniej "przeczytane" trzymało się
+// w localStorage danego urządzenia, więc odpowiedź na telefonie nie czyściła powiadomienia
+// na komputerze (i odwrotnie).
+function threadNeedsReply(log, comments){
+  if (comments && comments.length) {
+    return comments[comments.length - 1].sender === 'client';
+  }
+  if (log.note) return !log.trainer_reply;
+  return false;
 }
 
 async function checkPassword(){
@@ -288,7 +288,6 @@ async function loadAllClientsOverview(clients){
   const commentsByLog = {};
   allComments.forEach(c => { (commentsByLog[c.exercise_log_id] = commentsByLog[c.exercise_log_id] || []).push(c); });
 
-  const seen = getTrainerSeenIds();
   const today = new Date();
   let globalUnseen = 0;
   const rows = clients.map(c => {
@@ -299,10 +298,7 @@ async function loadAllClientsOverview(clients){
 
     let needsAttention = 0;
     logs.forEach(l => {
-      if (l.note && !l.trainer_reply) needsAttention++;
-      (commentsByLog[l.id] || []).forEach(cm => {
-        if (cm.sender === 'client' && !seen.has('c_' + cm.id)) needsAttention++;
-      });
+      if (threadNeedsReply(l, commentsByLog[l.id])) needsAttention++;
     });
     globalUnseen += needsAttention;
 
@@ -364,7 +360,6 @@ let currentSets = []; // exercise_logs aktualnie wybranego klienta — potrzebne
 let currentMeas = []; // measurements aktualnie wybranego klienta — potrzebne do eksportu CSV
 let currentClientName = ''; // nazwa aktualnie wybranego klienta — do nazwy pliku CSV
 let allClientsCache = []; // lista wszystkich klientów — do odświeżenia widoku "Wszyscy klienci" po oznaczeniu jako przeczytane
-let trainingDayKeys = {}; // idx dnia w "Treningi klienta" -> [klucze wiadomości klienta do oznaczenia jako przeczytane]
 
 async function loadClient(){
   const id = document.getElementById('clientSelect').value;
@@ -530,11 +525,9 @@ function renderTrainerPRs(){
 function renderTrainerClientBanner(){
   const banner = document.getElementById('trainerClientReplyBanner');
   if (!banner) return;
-  const seen = getTrainerSeenIds();
   let count = 0;
   currentSets.forEach(s => {
-    if (s.note && !s.trainer_reply) count++;
-    (currentComments[s.id] || []).forEach(c => { if (c.sender === 'client' && !seen.has('c_' + c.id)) count++; });
+    if (threadNeedsReply(s, currentComments[s.id])) count++;
   });
   if (count > 0) {
     banner.innerHTML = '💬 Ten klient ma ' + count + ' ' + (count === 1 ? 'wiadomość' : 'wiadomości') + ', która czeka na Twoją odpowiedź — zobacz sekcję "Treningi klienta" niżej.';
@@ -885,7 +878,7 @@ function renderFlags(meas, sets){
     if (daysSinceMeas >= 7) flags.push({ ok: false, text: 'Brak pomiaru tygodniowego od ' + daysSinceMeas + ' dni.' });
   }
 
-  const unresolved = sets.filter(s => s.note && !s.trainer_reply);
+  const unresolved = sets.filter(s => threadNeedsReply(s, currentComments[s.id]));
   if (unresolved.length) flags.push({ ok: false, text: unresolved.length + ' pytanie/notatka klienta czeka na odpowiedź.' });
 
   // Spadek objętości 2 treningi z rzędu, per ćwiczenie.
@@ -1079,18 +1072,11 @@ function renderTrainingList(sets){
   const byDate = {};
   sets.forEach(s => { (byDate[s.logged_at] = byDate[s.logged_at] || []).push(s); });
   const dates = Object.keys(byDate).sort().reverse();
-  trainingDayKeys = {};
   exList.innerHTML = dates.map((d, idx) => {
     const rows = byDate[d];
     const totalVol = rows.reduce((sum, s) => sum + volumeOf(s), 0);
     const flagged = rows.filter(s => s.note).length;
     const mood = rows.find(s => s.mood_rating)?.mood_rating;
-
-    const keys = [];
-    rows.forEach(s => {
-      (currentComments[s.id] || []).forEach(c => { if (c.sender === 'client') keys.push('c_' + c.id); });
-    });
-    trainingDayKeys[idx] = keys;
 
     return `
       <div class="training-row" onclick="toggleTraining(${idx})">
@@ -1141,11 +1127,9 @@ async function saveReply(exerciseLogId, hasFirstReply){
   if (error) { alert('Błąd zapisu odpowiedzi: ' + error.message); return; }
   const row = currentSets.find(s => s.id === exerciseLogId);
   notifyReply('to_client', row ? row.exercise_name : null, text);
-  // Odpowiadając, automatycznie oznacz wiadomości klienta w tym wątku jako przeczytane —
-  // bez tego licznik "nowych wiadomości" potrafił zostać na stałe nieaktualny (oznaczanie
-  // działało wcześniej tylko przy rozwinięciu dnia, a nie przy samej odpowiedzi).
-  const clientKeys = (currentComments[exerciseLogId] || []).filter(c => c.sender === 'client').map(c => 'c_' + c.id);
-  if (clientKeys.length) markTrainerSeen(clientKeys);
+  // "Czeka na odpowiedź" liczy się teraz wyłącznie z bazy (threadNeedsReply) — po zapisaniu
+  // odpowiedzi ostatnią wiadomością w wątku jest trener, więc licznik czyści się sam,
+  // na każdym urządzeniu, bez żadnego dodatkowego oznaczania "przeczytane".
   loadClient();
   loadAllClientsOverview(allClientsCache);
 }
@@ -1167,14 +1151,6 @@ function toggleTraining(idx){
   const open = detail.style.display !== 'none';
   detail.style.display = open ? 'none' : 'block';
   chev.textContent = open ? '▾' : '▴';
-  if (!open) {
-    const keys = trainingDayKeys[idx] || [];
-    if (keys.length) {
-      markTrainerSeen(keys);
-      renderTrainerClientBanner();
-      loadAllClientsOverview(allClientsCache);
-    }
-  }
 }
 
 function photoThumbs(m){
