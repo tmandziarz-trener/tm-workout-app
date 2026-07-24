@@ -208,6 +208,7 @@
         </div>
         <div class="hint">Opcjonalne — trener to widzi i szybciej zareaguje, jeśli coś nie idzie dobrze.</div>
       </div>
+      <button class="btn secondary" style="width:100%;margin-bottom:10px;" onclick="insertWholePlan()">📋 Dodaj cały plan do treningu</button>
       <div id="exerciseRows"></div>
       <button class="btn ghost" style="width:100%;margin-bottom:14px;" onclick="addExerciseRow()">+ dodaj ćwiczenie</button>
       <div class="stat" style="margin-bottom:14px;">
@@ -223,7 +224,8 @@
     <!-- ----- PLAN TRENINGOWY ----- -->
     <div id="panel-plan" class="card" style="display:none;">
       <h2>Twój plan treningowy</h2>
-      <div class="sub">Plan przygotowany przez trenera. Kliknij "Wstaw do treningu", żeby dodać ćwiczenie z celami do dzisiejszego logu.</div>
+      <div class="sub">Plan przygotowany przez trenera. Kliknij "Wstaw do treningu" przy pojedynczym ćwiczeniu, albo dodaj cały plan naraz przyciskiem poniżej i uzupełnij serie, powtórzenia i ciężar w logu treningu.</div>
+      <button class="btn" style="width:100%;margin-bottom:14px;" onclick="insertWholePlan()">📋 Dodaj cały plan do treningu</button>
       <div id="planList"></div>
     </div>
 
@@ -452,7 +454,9 @@ function enterMain(id, name){
   document.getElementById('screen-who').style.display = 'none';
   document.getElementById('screen-main').style.display = 'block';
   document.getElementById('me-name').textContent = name;
-  if (document.querySelectorAll('#exerciseRows .exercise-row').length === 0) { addExerciseRow(); addExerciseRow(); }
+  // Log treningu startuje pusty — klient dodaje ćwiczenia ręcznie (+ dodaj ćwiczenie)
+  // albo od razu całym planem (przycisk w zakładce Log treningu), zamiast zastawać
+  // dwa domyślne, puste wiersze, które trzeba było kasować.
 
   loadProfileSummary(id);
   checkWeeklyReport(id);
@@ -741,6 +745,25 @@ function insertPlanItem(item){
     weight_kg: item.target_weight_kg || 20,
   });
   showToast('Dodano "' + item.exercise_name + '" z planu — ustaw datę i zapisz trening.');
+}
+
+// Dodaje CAŁY plan naraz do logu treningu — same nazwy ćwiczeń i tyle pustych serii,
+// ile trener zaplanował (albo 3, jeśli nie ustawił), bez podpowiadania konkretnych
+// powtórzeń/ciężaru. Klient sam wpisuje, co faktycznie zrobił na dzisiejszym treningu.
+async function insertWholePlan(){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { data, error } = await sb.from('training_plan_items').select('*').eq('client_id', clientId).order('order_index');
+  if (error) { showToast('Błąd wczytywania planu: ' + error.message); return; }
+  if (!data || !data.length) { showToast('Nie masz jeszcze przypisanego planu treningowego.'); return; }
+
+  showTab('train');
+  document.getElementById('tab-plan').classList.remove('active');
+  document.getElementById('tab-train').classList.add('active');
+
+  data.forEach(item => {
+    addExerciseRow({ exercise_name: item.exercise_name, sets: item.target_sets || 3 });
+  });
+  showToast('Dodano cały plan (' + data.length + ' ćwiczeń) — uzupełnij serie, powtórzenia i ciężar.');
 }
 
 // ---------- SAMOPOCZUCIE ----------
@@ -1803,8 +1826,6 @@ function cancelEditWorkout(){
   document.getElementById('exerciseRows').innerHTML = '';
   selectedMood = null;
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
-  addExerciseRow();
-  addExerciseRow();
 }
 
 // Rejestracja Service Workera — pozwala zainstalować apkę na ekranie głównym telefonu.
