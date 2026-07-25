@@ -302,7 +302,7 @@ async function loadAllClientsOverview(clients){
   const noteIds = (allLogs || []).filter(l => l.note).map(l => l.id);
   let allComments = [];
   if (noteIds.length) {
-    const { data: comments } = await sb.from('exercise_log_comments').select('id,exercise_log_id,sender').in('exercise_log_id', noteIds);
+    const { data: comments } = await sb.from('exercise_log_comments').select('id,exercise_log_id,sender,created_at').in('exercise_log_id', noteIds).order('created_at');
     allComments = comments || [];
   }
   const commentsByLog = {};
