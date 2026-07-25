@@ -208,12 +208,32 @@ document.addEventListener('keydown', (e) => {
 // więc działa tak samo na telefonie i na komputerze — dawniej "przeczytane" trzymało się
 // w localStorage danego urządzenia, więc odpowiedź na telefonie nie czyściła powiadomienia
 // na komputerze (i odwrotnie).
+// Dodatkowo: trainer_dismissed_at pozwala ręcznie "oznaczyć jako przeczytane" wątek, w którym
+// klient dopisał coś, co nie wymaga odpowiedzi (np. samo "ok 👍"), bez konieczności pisania
+// czegokolwiek. To też jest w bazie (nie w localStorage), więc działa na każdym urządzeniu.
+// Jeśli klient napisze coś NOWEGO po momencie oznaczenia, wątek automatycznie znów "czeka".
 function threadNeedsReply(log, comments){
+  let lastSender, lastAt;
   if (comments && comments.length) {
-    return comments[comments.length - 1].sender === 'client';
+    const last = comments[comments.length - 1];
+    lastSender = last.sender;
+    lastAt = last.created_at;
+  } else if (log.note) {
+    lastSender = log.trainer_reply ? 'trainer' : 'client';
+    lastAt = log.created_at;
+  } else {
+    return false;
   }
-  if (log.note) return !log.trainer_reply;
-  return false;
+  if (lastSender !== 'client') return false;
+  if (log.trainer_dismissed_at && lastAt && new Date(log.trainer_dismissed_at) >= new Date(lastAt)) return false;
+  return true;
+}
+
+async function dismissThread(exerciseLogId){
+  const { error } = await sb.from('exercise_logs').update({ trainer_dismissed_at: new Date().toISOString() }).eq('id', exerciseLogId);
+  if (error) { alert('Błąd: ' + error.message); return; }
+  loadClient();
+  loadAllClientsOverview(allClientsCache);
 }
 
 async function checkPassword(){
@@ -269,7 +289,7 @@ async function loadAllClientsOverview(clients){
   const tbl = document.getElementById('allClientsTable');
   if (!clients || clients.length === 0) { tbl.innerHTML = '<tr><td class="hint">Brak jeszcze klientów.</td></tr>'; return; }
 
-  const { data: allLogs, error } = await sb.from('exercise_logs').select('id,client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min');
+  const { data: allLogs, error } = await sb.from('exercise_logs').select('id,client_id,logged_at,note,trainer_reply,sets_detail,sets,reps,weight_kg,duration_min,created_at,trainer_dismissed_at');
   if (error) { tbl.innerHTML = '<tr><td class="hint">Błąd: ' + error.message + '</td></tr>'; return; }
 
   // Ile pozycji planu treningowego ma każdy klient — do odznaki onboardingu.
@@ -1104,6 +1124,7 @@ function renderTrainingList(sets){
                 <input type="text" id="reply-${s.id}" placeholder="${s.trainer_reply ? 'Napisz kolejną wiadomość...' : 'Odpowiedz klientowi...'}">
                 <button class="btn secondary" onclick="saveReply('${s.id}', ${s.trainer_reply ? 'true' : 'false'})">Wyślij</button>
               </div>
+              ${threadNeedsReply(s, currentComments[s.id]) ? `<button class="btn secondary" style="margin-top:6px;width:auto;" onclick="dismissThread('${s.id}')">✓ Oznacz jako przeczytane</button>` : ''}
             ` : ''}
           </div>
         `).join('')}
