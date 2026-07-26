@@ -1593,6 +1593,44 @@ async function saveAsPlan(){
   loadPlan();
 }
 
+// Zapisuje jako plan konkretny trening już zapisany w historii (`historyRowsByDate`, wypełniane
+// w loadHistory()) — przydatne, gdy klient chce powtórzyć trening sprzed jakiegoś czasu bez
+// przepisywania ćwiczeń ręcznie. Ta sama logika co saveAsPlan(), tylko dane biorą się z już
+// zapisanych wierszy exercise_logs, a nie z formularza.
+async function savePlanFromHistoryDate(date){
+  const rows = historyRowsByDate[date] || [];
+  const withData = rows.filter(r => r.exercise_name);
+  if (withData.length === 0) { showToast('Brak ćwiczeń do zapisania.'); return; }
+
+  const planName = prompt('Jak nazwać ten plan? (np. "Trening z ' + date + '")');
+  if (!planName || !planName.trim()) return;
+  const name = planName.trim();
+  const clientId = localStorage.getItem('tmw_client_id');
+
+  const { data: existing } = await sb.from('training_plan_items')
+    .select('order_index').eq('client_id', clientId).eq('plan_name', name).order('order_index', { ascending: false }).limit(1);
+  const nextIndex = (existing && existing.length && existing[0].order_index !== null && existing[0].order_index !== undefined) ? existing[0].order_index + 1 : 0;
+
+  const items = withData.map((r, i) => {
+    const isCardio = r.duration_min !== null && r.duration_min !== undefined;
+    const setCount = Array.isArray(r.sets_detail) && r.sets_detail.length ? r.sets_detail.length : (r.sets || null);
+    return {
+      client_id: clientId,
+      plan_name: name,
+      exercise_name: r.exercise_name,
+      target_sets: isCardio ? null : setCount,
+      target_reps: isCardio ? null : r.reps,
+      target_weight_kg: isCardio ? null : r.weight_kg,
+      order_index: nextIndex + i,
+    };
+  });
+
+  const { error } = await sb.from('training_plan_items').insert(items);
+  if (error) { showToast('Błąd zapisu planu: ' + error.message); return; }
+  showToast('Zapisano plan „' + name + '” (' + items.length + ' ćwiczeń) z treningu ' + date + '.', 5000);
+  loadPlan();
+}
+
 // ---------- HISTORIA TRENINGÓW / EDYCJA ----------
 // ---------- POWIADOMIENIE O NOWEJ ODPOWIEDZI TRENERA ----------
 // Śledzimy "przeczytane" odpowiedzi trenera lokalnie (localStorage) po ich id —
@@ -1650,6 +1688,7 @@ function goToReplies(){
 }
 
 let historyDayKeys = {}; // idx dnia -> [klucze odpowiedzi trenera do oznaczenia jako przeczytane]
+let historyRowsByDate = {}; // data (logged_at) -> ćwiczenia z tego treningu — do "Zapisz jako plan" z historii
 
 async function loadHistory(){
   const clientId = localStorage.getItem('tmw_client_id');
@@ -1683,6 +1722,7 @@ async function loadHistory(){
     return;
   }
 
+  historyRowsByDate = byDate;
   historyDayKeys = {};
   const moodEmoji = { 1:'😞', 2:'😕', 3:'😐', 4:'🙂', 5:'💪' };
   list.innerHTML = dates.map((d, idx) => {
@@ -1715,9 +1755,10 @@ async function loadHistory(){
             ${r.note ? renderThread(r, commentsByLog[r.id] || []) : ''}
           </div>
         `).join('')}
-        <div style="display:flex;gap:6px;margin-top:12px;">
+        <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           <button class="btn secondary" onclick="editWorkoutDate('${d}')">Edytuj</button>
           <button class="btn danger" onclick="deleteWorkoutDate('${d}')">Usuń</button>
+          <button class="btn secondary" onclick="savePlanFromHistoryDate('${d}')">💾 Zapisz jako plan</button>
         </div>
       </div>
     `;
