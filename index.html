@@ -216,6 +216,8 @@
         <div class="num" id="totalVolume">0 kg</div>
       </div>
       <button class="btn" id="btn-save-workout" onclick="saveWorkout()">Zapisz cały trening</button>
+      <button class="btn secondary" id="btn-save-as-plan" style="margin-top:10px;width:100%;" onclick="saveAsPlan()">💾 Zapisz te ćwiczenia jako plan (na później)</button>
+      <div class="hint" style="margin-top:4px;">Nie zapisuje treningu — tylko listę ćwiczeń pod wybraną nazwą, żebyś mógł dodać ją jednym kliknięciem w zakładce „Plan” za tydzień czy dwa.</div>
       <button class="btn secondary" id="btn-cancel-edit" style="display:none;margin-top:10px;width:100%;" onclick="cancelEditWorkout()">Anuluj edycję</button>
       <div class="progress" id="uploadProgress"></div>
       <div class="hint" id="lastWorkoutSent" style="margin-top:10px;"></div>
@@ -1546,6 +1548,49 @@ async function saveWorkout(){
     btn.disabled = false;
     progress.textContent = '';
   }
+}
+
+// Zapisuje aktualnie wpisane w "Log treningu" ćwiczenia jako nazwany plan (training_plan_items),
+// bez zapisywania samego treningu — dzięki temu klient, który sam sobie ułożył trening od zera,
+// może go potem dodać jednym kliknięciem z zakładki "Plan" (np. za tydzień), zamiast wpisywać
+// wszystko od nowa. Cardio (czas/dystans) nie ma odpowiednika w schemacie planu — zapisujemy
+// wtedy samą nazwę ćwiczenia, bez celów liczbowych.
+async function saveAsPlan(){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const rows = Array.from(document.querySelectorAll('#exerciseRows .exercise-row'));
+  const withData = rows.filter(r => getExerciseName(r));
+  if (withData.length === 0) { showToast('Dodaj przynajmniej jedno ćwiczenie, żeby zapisać je jako plan.'); return; }
+
+  const planName = prompt('Jak nazwać ten plan? (np. "Trening A — góra ciała")');
+  if (!planName || !planName.trim()) return;
+  const name = planName.trim();
+
+  const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+  const avgReps = (arr) => { const a = avg(arr); return a === null ? null : Math.round(a); };
+
+  // Jeśli klient poda nazwę już istniejącego planu, dokładamy ćwiczenia na końcu (nie nadpisujemy).
+  const { data: existing } = await sb.from('training_plan_items')
+    .select('order_index').eq('client_id', clientId).eq('plan_name', name).order('order_index', { ascending: false }).limit(1);
+  const nextIndex = (existing && existing.length && existing[0].order_index !== null && existing[0].order_index !== undefined) ? existing[0].order_index + 1 : 0;
+
+  const items = withData.map((row, i) => {
+    const isCardio = row.querySelector('.ex-group').value === CARDIO_GROUP;
+    const setsDetail = isCardio ? [] : getSetsDetail(row).filter(s => s.reps !== null || s.weight_kg !== null);
+    return {
+      client_id: clientId,
+      plan_name: name,
+      exercise_name: getExerciseName(row),
+      target_sets: isCardio ? null : (setsDetail.length || null),
+      target_reps: isCardio ? null : avgReps(setsDetail.map(s=>s.reps).filter(v=>v!==null)),
+      target_weight_kg: isCardio ? null : avg(setsDetail.map(s=>s.weight_kg).filter(v=>v!==null)),
+      order_index: nextIndex + i,
+    };
+  });
+
+  const { error } = await sb.from('training_plan_items').insert(items);
+  if (error) { showToast('Błąd zapisu planu: ' + error.message); return; }
+  showToast('Zapisano plan „' + name + '” (' + items.length + ' ćwiczeń) — znajdziesz go w zakładce „Plan”.', 5000);
+  loadPlan();
 }
 
 // ---------- HISTORIA TRENINGÓW / EDYCJA ----------
