@@ -390,7 +390,7 @@ async function loadClient(){
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
     sb.from('clients').select('name,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
-    sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at'),
+    sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at').order('seq', { ascending: true }),
   ]);
   if (e0 || e1 || e2) { alert('Błąd wczytywania danych: ' + ((e0||e1||e2).message)); return; }
 
