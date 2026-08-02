@@ -2,7 +2,7 @@
 // Cache'ujemy tylko statyczną powłokę (HTML/CSS/JS/logo) — dane z Supabase (pomiary, treningi,
 // wiadomości) muszą zawsze iść na żywo do sieci, więc nigdy ich tu nie cache'ujemy.
 
-const CACHE_NAME = 'tmworkout-shell-v1';
+const CACHE_NAME = 'tmworkout-shell-v2';
 const SHELL_FILES = [
   '/index.html',
   '/trener.html',
@@ -41,18 +41,21 @@ self.addEventListener('fetch', (event) => {
   // Tylko GET nadaje się do cache'owania.
   if (event.request.method !== 'GET') return;
 
+  // Network-first: zawsze próbujemy pobrać najświeższą wersję z sieci (żeby klient od razu
+  // dostawał nowy kod po wdrożeniu poprawki), a cache służy TYLKO jako fallback, gdy sieć
+  // zawiedzie (np. brak zasięgu). Poprzednia wersja (cache-first: "cached || network")
+  // pokazywała zapisaną w cache'u wersję na zawsze, nawet gdy była dostępna sieć — telefon
+  // z zainstalowaną apką mógł w ten sposób utknąć na starym, wadliwym kodzie na stałe,
+  // mimo kolejnych wdrożeń poprawek na serwerze.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((resp) => {
-          if (resp && resp.ok) {
-            const copy = resp.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return resp;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((resp) => {
+        if (resp && resp.ok) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return resp;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
