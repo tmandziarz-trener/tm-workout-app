@@ -111,11 +111,12 @@
     </div>
 
     <div class="tabs">
-      <button id="tab-meas" class="active" onclick="showTab('meas')">Pomiar tygodniowy</button>
-      <button id="tab-train" onclick="showTab('train')">Log treningu</button>
+      <button id="tab-train" class="active" onclick="showTab('train')">Log treningu</button>
+      <button id="tab-meas" onclick="showTab('meas')">Pomiar tygodniowy</button>
       <button id="tab-plan" onclick="showTab('plan')">Plan</button>
       <button id="tab-diet" onclick="showTab('diet')">Dieta</button>
       <button id="tab-history" onclick="showTab('history')">Historia <span id="historyBadge" class="badge warn" style="display:none;"></span></button>
+      <button id="tab-records" onclick="showTab('records')">🏆 Rekordy</button>
     </div>
 
     <!-- ----- CHECKIN ŻYWIENIOWY (DZIENNY) ----- -->
@@ -136,7 +137,7 @@
       <div id="checkinHistoryList"></div>
     </div>
 
-    <!-- ----- POROWNANIE ZDJĘĆ SYLWETKI ----- -->
+    <!-- ----- POROWNANIE ZDBĘĆ SYLWETKI ----- -->
     <div id="panel-photo-compare" class="card" style="display:none;">
       <h2>Twój progres na zdjęciach</h2>
       <div class="sub">Pierwsze i najnowsze zdjęcie sylwetki, jedno pod drugim — Twój przed/po.</div>
@@ -144,7 +145,7 @@
     </div>
 
     <!-- ----- POMIAR TYGODNIOWY ----- -->
-    <div id="panel-meas" class="card">
+    <div id="panel-meas" class="card" style="display:none;">
       <h2 id="measHeading">Cotygodniowy pomiar</h2>
       <div class="sub" id="measSub">Wypełnij raz w tygodniu, najlepiej tego samego dnia.</div>
       <div class="field"><label>Data pomiaru</label><input type="date" id="m_date"></div>
@@ -188,7 +189,7 @@
     </div>
 
     <!-- ----- LOG TRENINGU ----- -->
-    <div id="panel-train" class="card" style="display:none;">
+    <div id="panel-train" class="card">
       <h2 id="trainHeading">Log treningu</h2>
       <div class="sub" id="trainSub">Dodaj tyle ćwiczeń, ile chcesz — wszystkie zapiszą się za jednym razem. Wideo i pytanie są opcjonalne, dodaj je tylko przy ćwiczeniach, które chcesz, żeby trener sprawdził.</div>
       <div class="field"><label>Data treningu</label><input type="date" id="t_date"></div>
@@ -226,7 +227,7 @@
     <!-- ----- PLAN TRENINGOWY ----- -->
     <div id="panel-plan" class="card" style="display:none;">
       <h2>Twój plan treningowy</h2>
-      <div class="sub">Trener mógł przygotować kilka planów (np. na różne dni). Kliknij "Wstaw do treningu" przy pojedynczym ćwiczeniu, albo dodaj cały wybrany plan naraz i uzupełnij serie, powtórzenia i ciężar w logu treningu.</div>
+      <div class="sub">Trener móże przygotować kilka planów (np. na różne dni). Kliknij "Wstaw do treningu" przy pojedynczym ćwiczeniu, albo dodaj cały wybrany plan naraz i uzupełnij serie, powtórzenia i ciężar w logu treningu.</div>
       <div id="planList"></div>
     </div>
 
@@ -242,9 +243,12 @@
       <table id="clientExVolTable"></table>
     </div>
 
-    <!-- Rekordy życiowe niżej — po otwarciu apki klient najpierw chce zalogować pomiar
-         albo trening, więc pochwała rekordów nie powinna zajmować pierwszego miejsca. -->
-    <div id="prBox" style="display:none;"></div>
+    <!-- ----- REKORDY ŻYCIOWE ----- -->
+    <div id="panel-records" class="card" style="display:none;">
+      <h2>🏆 Rekordy życiowe</h2>
+      <div class="sub">Twój najwyższy ciężar w historii, na każdym ćwiczeniu osobno.</div>
+      <div id="prList"></div>
+    </div>
 
   </div>
 
@@ -469,6 +473,9 @@ function enterMain(id, name){
   loadLastWorkoutSent(id);
   checkNewReplies(id);
   loadPRs(id);
+  // Po zalogowaniu klient najczęściej wchodzi po to, żeby zalogować dzisiejszy trening —
+  // "Log treningu" ma się więc pokazywać jako pierwsza zakładka, zaraz pod metryczką i celem.
+  showTab('train');
 }
 
 // ---------- PROFIL: awatar, waga, wzrost ----------
@@ -698,18 +705,15 @@ function computeAllTimePRs(rows){
 }
 
 async function loadPRs(clientId){
-  const box = document.getElementById('prBox');
-  if (!box) return;
+  const list = document.getElementById('prList');
+  if (!list) return;
   const { data, error } = await sb.from('exercise_logs').select('exercise_name,weight_kg,sets_detail,logged_at,duration_min').eq('client_id', clientId);
-  if (error || !data) { box.style.display = 'none'; return; }
+  if (error || !data) { list.innerHTML = '<div class="hint">Błąd wczytywania rekordów.</div>'; return; }
 
   const prs = computeAllTimePRs(data);
-  if (!prs.length) { box.style.display = 'none'; return; }
+  if (!prs.length) { list.innerHTML = '<div class="hint">Jeszcze nie masz żadnych rekordów — zapisz pierwszy trening z ciężarem, żeby się tu pojawiły.</div>'; return; }
 
-  box.innerHTML = '<div class="card pr-card"><h2>🏆 Rekordy życiowe</h2>' +
-    prs.map(p => `<div class="pr-item"><span>${escapeHtmlLocal(p.exercise_name)}</span><b>${p.weight} kg</b><span class="hint">${p.date}</span></div>`).join('') +
-    '</div>';
-  box.style.display = 'block';
+  list.innerHTML = prs.map(p => `<div class="pr-item"><span>${escapeHtmlLocal(p.exercise_name)}</span><b>${p.weight} kg</b><span class="hint">${p.date}</span></div>`).join('');
 }
 
 // ---------- PLAN TRENINGOWY ----------
@@ -740,17 +744,54 @@ async function loadPlan(){
         <strong style="font-size:15px;">${escapeHtmlLocal(planName)}</strong>
         <button class="btn" style="width:auto;flex-shrink:0;" onclick='insertWholePlan(${JSON.stringify(planName).replace(/'/g,"&#39;")})'>📋 Dodaj ten plan</button>
       </div>
-      ${byPlan[planName].map(item => `
+      ${byPlan[planName].map((item, idx, arr) => `
         <div class="plan-item">
           <div class="hi-info">
             <strong>${escapeHtmlLocal(item.exercise_name)}</strong>
             <div class="hint">${item.target_sets ?? '-'} serie × ${item.target_reps ?? '-'} powt. @ ${item.target_weight_kg ?? '-'} kg</div>
           </div>
-          <button class="btn secondary" onclick='insertPlanItem(${JSON.stringify(item).replace(/'/g,"&#39;")})'>Wstaw do treningu</button>
+          <div class="plan-item-actions">
+            <button class="btn ghost plan-move-btn" title="Przesuń wyżej" onclick="movePlanItem('${item.id}','up')" ${idx===0 ? 'disabled' : ''}>▲</button>
+            <button class="btn ghost plan-move-btn" title="Przesuń niżej" onclick="movePlanItem('${item.id}','down')" ${idx===arr.length-1 ? 'disabled' : ''}>▼</button>
+            <button class="btn secondary" onclick='insertPlanItem(${JSON.stringify(item).replace(/'/g,"&#39;")})'>Wstaw do treningu</button>
+            <button class="btn danger plan-move-btn" title="Usuń z planu" onclick="deletePlanItem('${item.id}')">✕</button>
+          </div>
         </div>
       `).join('')}
     </div>
   `).join('');
+}
+
+// Zamienia miejscami order_index tej pozycji z sąsiednią (w obrębie tego samego planu),
+// żeby klient mógł sam poustawiać kolejność ćwiczeń bez pisania do trenera.
+async function movePlanItem(id, direction){
+  const clientId = localStorage.getItem('tmw_client_id');
+  const { data: itemRow, error: e1 } = await sb.from('training_plan_items').select('plan_name').eq('id', id).single();
+  if (e1 || !itemRow) { showToast('Błąd: nie znaleziono pozycji planu.'); return; }
+
+  const { data: items, error: e2 } = await sb.from('training_plan_items')
+    .select('id,order_index').eq('client_id', clientId).eq('plan_name', itemRow.plan_name).order('order_index', { ascending: true });
+  if (e2 || !items) { showToast('Błąd wczytywania planu.'); return; }
+
+  const idx = items.findIndex(i => i.id === id);
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (idx === -1 || swapIdx < 0 || swapIdx >= items.length) return;
+
+  const a = items[idx], b = items[swapIdx];
+  const [{ error: uErr1 }, { error: uErr2 }] = await Promise.all([
+    sb.from('training_plan_items').update({ order_index: b.order_index }).eq('id', a.id),
+    sb.from('training_plan_items').update({ order_index: a.order_index }).eq('id', b.id),
+  ]);
+  if (uErr1 || uErr2) { showToast('Błąd zmiany kolejności.'); return; }
+  loadPlan();
+}
+
+async function deletePlanItem(id){
+  if (!confirm('Usunąć to ćwiczenie z planu? Nie wpływa to na już zapisane treningi.')) return;
+  const { error } = await sb.from('training_plan_items').delete().eq('id', id);
+  if (error) { showToast('Błąd usuwania: ' + error.message); return; }
+  showToast('Usunięto z planu.');
+  loadPlan();
 }
 
 // Sprawdza, co klient faktycznie zrobił ostatnim razem na danym ćwiczeniu (niezależnie
@@ -886,15 +927,26 @@ function showTab(which){
   document.getElementById('tab-plan').classList.toggle('active', which==='plan');
   document.getElementById('tab-diet').classList.toggle('active', which==='diet');
   document.getElementById('tab-history').classList.toggle('active', which==='history');
+  document.getElementById('tab-records').classList.toggle('active', which==='records');
   document.getElementById('panel-meas').style.display = which==='meas' ? 'block' : 'none';
   document.getElementById('panel-photo-compare').style.display = which==='meas' ? (document.getElementById('photoCompareBox').innerHTML ? 'block' : 'none') : 'none';
   document.getElementById('panel-train').style.display = which==='train' ? 'block' : 'none';
   document.getElementById('panel-plan').style.display = which==='plan' ? 'block' : 'none';
   document.getElementById('panel-diet').style.display = which==='diet' ? 'block' : 'none';
   document.getElementById('panel-history').style.display = which==='history' ? 'block' : 'none';
+  document.getElementById('panel-records').style.display = which==='records' ? 'block' : 'none';
   if (which==='diet') loadDailyCheckins(localStorage.getItem('tmw_client_id'));
   if (which === 'history') loadHistory();
   if (which === 'plan') loadPlan();
+  if (which === 'records') loadPRs(localStorage.getItem('tmw_client_id'));
+
+  // Kafelków zakładek robi się coraz więcej — pasek przewija się poziomo (patrz CSS .tabs),
+  // więc po kliknięciu/zmianie płynnie doprzewijamy aktywną zakładkę do widoku, żeby klient
+  // od razu widział, gdzie jest, nawet jeśli kliknął coś poza ekranem.
+  const activeBtn = document.getElementById('tab-' + which);
+  if (activeBtn && activeBtn.scrollIntoView) {
+    activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
 }
 
 // ---------- POMIAR ----------
@@ -1861,7 +1913,7 @@ async function sendClientReply(exerciseLogId, exerciseName){
 // Powiadomienie e-mail (fire-and-forget) — błąd wysyłki nie powinien przerywać
 // normalnego działania apki, dlatego zawsze łapiemy wyjątek i tylko logujemy do konsoli.
 function notifyReply(direction, exerciseName, message){
-  const clientId = localStorage.getItem('tmw_client_id');
+ const clientId = localStorage.getItem('tmw_client_id');
   if (!clientId) return;
   fetch('/api/notify-reply', {
     method: 'POST',
@@ -1884,7 +1936,7 @@ async function deleteWorkoutDate(date){
 
 function escapeHtmlLocal(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ---------- OBJĘTOŚĆ PER ĆWICZENIE (TRENING DO TRENINGU) ----------
+// ---------- OBJĘTOŚĆ PER ćWICZENIE (TRENING DO TRENINGU) ----------
 function numLocal(v){ const n = parseFloat(v); return (v===null||v===undefined||isNaN(n)) ? null : n; }
 
 function volumeOfLocal(s){
@@ -1921,7 +1973,7 @@ function renderExerciseTrendClient(sets){
       let trend = '<span class="hint">—</span>';
       if (occ.length >= 2) {
         const diff = occ[occ.length-1].vol - occ[occ.length-2].vol;
-        const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '—');
+        const arrow = diff > 0 ? '→' : (diff < 0 ? '↼' : '—');
         const color = diff > 0 ? 'var(--good)' : (diff < 0 ? 'var(--bad)' : 'var(--text-muted)');
         trend = `<span style="color:${color};font-weight:700;">${arrow} ${diff>0?'+':''}${diff} kg</span>`;
       }
@@ -1963,7 +2015,7 @@ function cancelEditWorkout(){
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
 }
 
-// Rejestracja Service Workera — pozwala zainstalować apkę na ekranie głównym telefonu.
+// Rejestracja Service Workera — pozwala zainstalować apkę na ekranie głównego telefonu.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW rejestracja nieudana:', err));
