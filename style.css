@@ -29,8 +29,23 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .btn:disabled{opacity:.6;cursor:not-allowed;}
 .btn.secondary{background:none;border:1px solid var(--dark);color:var(--dark);width:auto;padding:9px 16px;font-size:13px;}
 .btn.ghost{background:none;border:1px dashed var(--accent-dark);color:var(--accent-dark);width:auto;padding:9px 16px;font-size:13px;}
-.tabs{display:flex;gap:8px;margin-bottom:16px;}
-.tabs button{flex:1;padding:11px;border-radius:9px;border:1px solid var(--border);background:#fff;font-weight:700;font-size:13px;cursor:pointer;color:var(--dark);}
+/* Pasek zakładek: coraz więcej kafelków (Log, Pomiar, Plan, Dieta, Historia, Rekordy...),
+   więc zamiast ściskać je na siłę w jednym rzędzie (flex:1), pasek przewija się poziomo —
+   z płynną animacją (scroll-behavior + scrollIntoView z JS przy zmianie zakładki) i
+   przyciąganiem do kafelków (scroll-snap), jak w typowych apkach mobilnych. */
+.tabs{
+  display:flex;gap:8px;margin-bottom:16px;
+  overflow-x:auto;scroll-behavior:smooth;scroll-snap-type:x proximity;
+  -webkit-overflow-scrolling:touch;padding-bottom:2px;
+}
+.tabs::-webkit-scrollbar{display:none;}
+.tabs{scrollbar-width:none;-ms-overflow-style:none;}
+.tabs button{
+  flex:0 0 auto;scroll-snap-align:start;white-space:nowrap;
+  padding:11px 16px;border-radius:9px;border:1px solid var(--border);background:#fff;
+  font-weight:700;font-size:13px;cursor:pointer;color:var(--dark);
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
 .tabs button.active{background:var(--dark);color:#fff;border-color:var(--dark);}
 .exercise-row{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;background:#fafaf9;position:relative;}
 .exercise-row .remove{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--bad);font-weight:800;cursor:pointer;font-size:15px;}
@@ -115,7 +130,9 @@ canvas{max-height:260px;}
 .photo-compare-col{flex:1;text-align:center;}
 .photo-compare-img{width:100%;max-width:140px;border-radius:8px;margin:2px;border:1px solid var(--border);object-fit:cover;aspect-ratio:3/4;}
 
-.plan-item{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:#fafaf9;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.plan-item{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:#fafaf9;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.plan-item-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0;margin-left:auto;}
+.plan-move-btn{padding:9px 12px;font-size:14px;line-height:1;}
 
 .flag-item{border-left:3px solid var(--bad);background:#fdecea;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:8px;}
 .flag-item.ok{border-left-color:var(--good);background:#eef6ee;}
