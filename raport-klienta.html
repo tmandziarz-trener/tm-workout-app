@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TM Workout — Twój tygodniowy raport</title>
+<link rel="stylesheet" href="style.css">
+<style>
+body.report-body{background:#f5f4f2;}
+.wr-wrap{max-width:520px;margin:24px auto;padding:0 16px;}
+.wr-card{background:#fff;border:1px solid #e4e0da;border-top:5px solid #c5a689;border-radius:14px;padding:24px 22px;position:relative;overflow:hidden;}
+.wr-confetti{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+.wr-top{text-align:center;margin-bottom:18px;}
+.wr-eyebrow{font-size:12px;letter-spacing:1px;color:#767066;text-transform:uppercase;}
+.wr-title{font-size:22px;margin:6px 0 2px;color:#1a1a1a;}
+.wr-sub{font-size:13px;color:#767066;}
+.wr-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+.wr-stat{background:#f5f4f2;border-radius:12px;padding:16px 8px;text-align:center;}
+.wr-stat .ico{font-size:22px;}
+.wr-stat .num{font-size:26px;font-weight:700;color:#1a1a1a;}
+.wr-stat .lbl{font-size:11px;color:#767066;margin-top:2px;}
+.wr-arrow{display:flex;align-items:center;justify-content:center;gap:3px;font-size:11px;color:#5a8a5a;margin-top:4px;opacity:0;transition:opacity .5s;}
+.wr-arrow span{display:inline-block;transition:transform .6s;}
+.wr-weight{background:#fbeae0;border-radius:12px;padding:16px 18px;margin-bottom:18px;}
+.wr-weight-row{display:flex;justify-content:space-between;font-size:14px;color:#1a1a1a;margin-bottom:4px;}
+.wr-weight-delta{font-size:13px;color:#767066;font-weight:500;}
+.wr-note{background:#f5f4f2;border-left:3px solid #c5a689;border-radius:0 10px 10px 0;padding:12px 16px;font-size:14px;color:#1a1a1a;font-style:italic;margin-bottom:20px;}
+.wr-empty{text-align:center;padding:60px 16px;color:#767066;}
+</style>
+</head>
+<body class="report-body">
+
+<header>
+  <img src="logo.png" alt="Tomasz Mandziarz Workout" class="logo-img">
+  <div class="logo-text"><div class="bottom">TWÓJ TYGODNIOWY RAPORT</div></div>
+</header>
+
+<main>
+<div class="wr-wrap" id="wrRoot"></div>
+</main>
+
+<script>
+const params = new URLSearchParams(location.search);
+const name = params.get('name') || '';
+const from = params.get('from') || '';
+const to = params.get('to') || '';
+const strength = parseInt(params.get('strength') || '0', 10);
+const prevStrength = parseInt(params.get('prevStrength') || '0', 10);
+const cardio = parseInt(params.get('cardio') || '0', 10);
+const streak = parseInt(params.get('streak') || '0', 10);
+const hasWeight = params.has('weightStart') && params.has('weightNow');
+const weightStart = parseFloat(params.get('weightStart'));
+const weightNow = parseFloat(params.get('weightNow'));
+const note = params.get('note') || '';
+
+const MONTHS = ['stycznia','lutego','marca','kwietnia','maja','czerwca','lipca','sierpnia','września','października','listopada','grudnia'];
+function fmtRange(fromStr, toStr){
+  if (!fromStr || !toStr) return '';
+  const f = new Date(fromStr + 'T00:00:00'), t = new Date(toStr + 'T00:00:00');
+  if (isNaN(f) || isNaN(t)) return '';
+  if (f.getMonth() === t.getMonth()) return f.getDate() + '–' + t.getDate() + ' ' + MONTHS[f.getMonth()];
+  return f.getDate() + ' ' + MONTHS[f.getMonth()] + ' – ' + t.getDate() + ' ' + MONTHS[t.getMonth()];
+}
+
+function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+const root = document.getElementById('wrRoot');
+
+if (!name && !from) {
+  root.innerHTML = '<div class="wr-card"><div class="wr-empty">Ten link jest niekompletny.<br>Otwórz raport z wiadomości e-mail od trenera.</div></div>';
+} else {
+  const delta = strength - prevStrength;
+  const weightDelta = hasWeight ? (weightNow - weightStart) : null;
+  const weightArrow = weightDelta === null ? '' : (weightDelta < 0 ? '↓' : (weightDelta > 0 ? '↑' : '→'));
+
+  root.innerHTML = `
+    <div class="wr-card">
+      <canvas class="wr-confetti" id="confetti"></canvas>
+      <div class="wr-top">
+        <div class="wr-eyebrow">TM Workout · Twój tydzień</div>
+        <h1 class="wr-title">Świetna robota${name ? ', ' + escapeHtml(name) : ''}! 🎉</h1>
+        <div class="wr-sub">${fmtRange(from, to)}</div>
+      </div>
+      <div class="wr-stats">
+        <div class="wr-stat">
+          <div class="ico">💪</div>
+          <div class="num" id="num-strength">0</div>
+          <div class="lbl">treningi siłowe</div>
+          <div class="wr-arrow" id="arrow-strength"><span>↑</span> +${Math.abs(delta)}</div>
+        </div>
+        <div class="wr-stat">
+          <div class="ico">🏃</div>
+          <div class="num" id="num-cardio">0</div>
+          <div class="lbl">cardio</div>
+        </div>
+        <div class="wr-stat">
+          <div class="ico">🔥</div>
+          <div class="num" id="num-streak">0</div>
+          <div class="lbl">tyg. passy</div>
+        </div>
+      </div>
+      ${hasWeight ? `
+        <div class="wr-weight">
+          <div class="wr-weight-row"><span>Waga</span><span id="weight-label" style="font-weight:700;">${weightStart.toFixed(1)} kg</span></div>
+          <div class="wr-weight-delta">${weightArrow} ${Math.abs(weightDelta).toFixed(1)} kg w tym tygodniu</div>
+        </div>` : ''}
+      ${note ? `<div class="wr-note">"${escapeHtml(note)}" — Tomasz</div>` : ''}
+    </div>
+  `;
+
+  if (delta <= 0) document.getElementById('arrow-strength').style.display = 'none';
+
+  const canvas = document.getElementById('confetti');
+  const card = canvas.parentElement;
+  function sizeCanvas(){ canvas.width = card.offsetWidth; canvas.height = card.offsetHeight; }
+  sizeCanvas();
+  const ctx = canvas.getContext('2d');
+  const colors = ['#c5a689','#a8875c','#5a8a5a','#1a1a1a'];
+  const pieces = Array.from({ length: 40 }, () => ({
+    x: Math.random() * canvas.width,
+    y: -20 - Math.random() * canvas.height * 0.5,
+    r: 3 + Math.random() * 3,
+    c: colors[Math.floor(Math.random() * colors.length)],
+    vy: 1.5 + Math.random() * 2,
+    vx: -1 + Math.random() * 2,
+    rot: Math.random() * 360,
+    vr: -4 + Math.random() * 8,
+  }));
+  let frame = 0;
+  function draw(){
+    frame++;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let stillFalling = false;
+    pieces.forEach(p => {
+      if (p.y < canvas.height + 20) stillFalling = true;
+      p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI / 180);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.r, -p.r * 0.4, p.r * 2, p.r * 0.8);
+      ctx.restore();
+    });
+    if (frame < 160 && stillFalling) requestAnimationFrame(draw);
+  }
+  draw();
+
+  function countUp(id, target, dur){
+    const el = document.getElementById(id);
+    if (!el) return;
+    const start = performance.now();
+    function step(t){
+      const p = Math.min(1, (t - start) / dur);
+      el.textContent = Math.round(p * target);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  setTimeout(() => countUp('num-strength', strength, 700), 200);
+  setTimeout(() => countUp('num-cardio', cardio, 700), 400);
+  setTimeout(() => countUp('num-streak', streak, 900), 600);
+  if (delta > 0) {
+    setTimeout(() => {
+      const a = document.getElementById('arrow-strength');
+      a.style.opacity = '1';
+      a.querySelector('span').style.transform = 'translateY(-3px)';
+    }, 1000);
+  }
+  if (hasWeight) {
+    setTimeout(() => {
+      const label = document.getElementById('weight-label');
+      const dur = 1200, start = performance.now();
+      function step(t){
+        const p = Math.min(1, (t - start) / dur);
+        label.textContent = (weightStart + (weightNow - weightStart) * p).toFixed(1) + ' kg';
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }, 300);
+  }
+}
+</script>
+</body>
+</html>
