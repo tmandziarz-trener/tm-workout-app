@@ -94,6 +94,27 @@
         <button class="btn secondary" id="btnExportCsv" style="margin-top:10px;" onclick="exportClientCsv()">📥 Eksportuj dane do CSV</button>
       </div>
       <div class="card">
+        <h2>📧 Raport tygodniowy dla klienta</h2>
+        <div class="sub">Krótkie, motywujące podsumowanie tygodnia z animowanym podglądem. Nic nie wysyła się automatycznie — Ty zatwierdzasz każdą wysyłkę.</div>
+        <div class="field">
+          <label>Który tydzień</label>
+          <select id="wrWeekSelect" onchange="renderWeeklyReportCard()">
+            <option value="1">Ubiegły tydzień (zakończony)</option>
+            <option value="0">Bieżący tydzień (w trakcie)</option>
+          </select>
+        </div>
+        <div id="weeklyReportPreview"></div>
+        <div class="field">
+          <label>Twoja notatka do klienta</label>
+          <textarea id="wrNote" rows="2" placeholder="np. Świetna konsekwencja w tym tygodniu, tak trzymaj!" oninput="saveWeeklyReportNoteDraft()"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary" style="flex:1;" onclick="previewWeeklyReport()">👀 Podgląd</button>
+          <button class="btn" style="flex:1;" onclick="sendWeeklyReport()">✅ Zatwierdź i wyślij</button>
+        </div>
+        <div class="hint" id="wrHint"></div>
+      </div>
+      <div class="card">
         <h2>🍗 Dieta — checkin (7 dni)</h2>
         <div id="dietSummaryBox"><div class="hint">Wczytywanie...</div></div>
       </div>
@@ -379,6 +400,8 @@ let currentComments = {}; // exercise_log_id -> [{sender, message, created_at}] 
 let currentSets = []; // exercise_logs aktualnie wybranego klienta — potrzebne do liczenia powiadomień
 let currentMeas = []; // measurements aktualnie wybranego klienta — potrzebne do eksportu CSV
 let currentClientName = ''; // nazwa aktualnie wybranego klienta — do nazwy pliku CSV
+let currentClientEmail = ''; // e-mail aktualnie wybranego klienta — do wysyłki raportu tygodniowego
+let currentWeeklyReportStats = null; // ostatnio wyliczone staty do podglądu/wysyłki raportu tygodniowego
 let allClientsCache = []; // lista wszystkich klientów — do odświeżenia widoku "Wszyscy klienci" po oznaczeniu jako przeczytane
 
 async function loadClient(){
@@ -388,7 +411,7 @@ async function loadClient(){
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('name,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note').eq('id', id).single(),
+    sb.from('clients').select('name,email,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at').order('seq', { ascending: true }),
   ]);
@@ -397,6 +420,7 @@ async function loadClient(){
   currentSets = sets || [];
   currentMeas = meas || [];
   currentClientName = client ? client.name : '';
+  currentClientEmail = client ? (client.email || '') : '';
   currentComments = {};
   const noteIds = (sets || []).filter(s => s.note).map(s => s.id);
   if (noteIds.length) {
@@ -413,6 +437,7 @@ async function loadClient(){
   renderTrainerClientBanner();
   renderTrainerPRs();
   loadDietSummary(id);
+  renderWeeklyReportCard();
 }
 
 // ---------- EKSPORT DANYCH KLIENTA DO CSV ----------
@@ -695,7 +720,7 @@ async function removePlanItem(itemId){
 }
 
 // ---------- IMPORT CAŁEGO PLANU (WKLEJONY TEKST ALBO PLIK WORD/EXCEL) ----------
-// Pomysł: zamiast dodawać ćwiczenia jedno po drugim, trener wkleja cały plan (albo wczytuje
+// Pomysł: zamiast dodawać ćwiczenie jedno po drugim, trener wkleja cały plan (albo wczytuje
 // gotowy plik) — apka sama próbuje rozpoznać ćwiczenia, pokazuje podgląd do sprawdzenia,
 // i dopiero po akceptacji zapisuje wszystko jedną paczką.
 let planPreviewItems = [];
@@ -991,6 +1016,167 @@ function renderWeeklyTrainingCount(sets){
   });
   document.getElementById('trainerWtsStrength').textContent = strengthCount;
   document.getElementById('trainerWtsCardio').textContent = cardioCount;
+}
+
+// ---------- RAPORT TYGODNIOWY DLA KLIENTA (e-mail po zatwierdzeniu trenera) ----------
+function isoWeekMonday(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  const diffToMonday = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diffToMonday);
+  return fmtDateLocal(d);
+}
+
+function selectedWeekRange(){
+  const sel = document.getElementById('wrWeekSelect');
+  const weeksAgo = parseInt((sel && sel.value) || '1', 10);
+  const { from: curFrom } = getCurrentWeekRange();
+  const monday = new Date(curFrom + 'T00:00:00');
+  monday.setDate(monday.getDate() - 7 * weeksAgo);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { from: fmtDateLocal(monday), to: fmtDateLocal(sunday) };
+}
+
+function computeWeekCounts(sets, from, to){
+  const inWeek = sets.filter(s => s.logged_at >= from && s.logged_at <= to);
+  const byDate = {};
+  inWeek.forEach(r => {
+    if (!byDate[r.logged_at]) byDate[r.logged_at] = { cardio: false, strength: false };
+    if (r.duration_min !== null && r.duration_min !== undefined) {
+      if (Number(r.duration_min) >= MIN_CARDIO_MINUTES_FOR_COUNT) byDate[r.logged_at].cardio = true;
+    } else {
+      byDate[r.logged_at].strength = true;
+    }
+  });
+  let strength = 0, cardio = 0;
+  Object.values(byDate).forEach(v => { if (v.strength) strength++; if (v.cardio) cardio++; });
+  return { strength, cardio };
+}
+
+function computeStreakAsOf(sets, weekStartStr){
+  const distinctDates = Array.from(new Set(sets.map(s => s.logged_at)));
+  const weekCounts = {};
+  distinctDates.forEach(d => { const wk = isoWeekMonday(d); weekCounts[wk] = (weekCounts[wk] || 0) + 1; });
+  let cursor = new Date(weekStartStr + 'T00:00:00');
+  let streak = 0;
+  for (let i = 0; i < 104; i++) {
+    const wk = fmtDateLocal(cursor);
+    if ((weekCounts[wk] || 0) >= 2) { streak++; cursor.setDate(cursor.getDate() - 7); } else break;
+  }
+  return streak;
+}
+
+function computeWeightDelta(meas, from, to){
+  const sorted = meas
+    .filter(m => m.weight_kg !== null && m.weight_kg !== undefined)
+    .slice()
+    .sort((a, b) => a.measured_at.localeCompare(b.measured_at));
+  const inWeek = sorted.filter(m => m.measured_at >= from && m.measured_at <= to);
+  if (!inWeek.length) return null;
+  const now = inWeek[inWeek.length - 1];
+  const before = sorted.filter(m => m.measured_at < from);
+  const start = before.length ? before[before.length - 1] : inWeek[0];
+  return { start: Number(start.weight_kg), now: Number(now.weight_kg) };
+}
+
+function weeklyReportNoteKey(){
+  if (!currentClientId || !currentWeeklyReportStats) return null;
+  return 'tmw_wr_note_' + currentClientId + '_' + currentWeeklyReportStats.from;
+}
+
+function saveWeeklyReportNoteDraft(){
+  const key = weeklyReportNoteKey();
+  if (!key) return;
+  localStorage.setItem(key, document.getElementById('wrNote').value);
+}
+
+function restoreWeeklyReportNoteDraft(){
+  const key = weeklyReportNoteKey();
+  const el = document.getElementById('wrNote');
+  if (!key || !el) return;
+  el.value = localStorage.getItem(key) || '';
+}
+
+function renderWeeklyReportCard(){
+  const box = document.getElementById('weeklyReportPreview');
+  if (!box || !currentClientId) return;
+
+  const { from, to } = selectedWeekRange();
+  const prevMonday = new Date(from + 'T00:00:00'); prevMonday.setDate(prevMonday.getDate() - 7);
+  const prevSunday = new Date(prevMonday); prevSunday.setDate(prevMonday.getDate() + 6);
+  const prevFrom = fmtDateLocal(prevMonday), prevTo = fmtDateLocal(prevSunday);
+
+  const { strength, cardio } = computeWeekCounts(currentSets, from, to);
+  const { strength: prevStrength } = computeWeekCounts(currentSets, prevFrom, prevTo);
+  const streak = computeStreakAsOf(currentSets, from);
+  const weight = computeWeightDelta(currentMeas, from, to);
+
+  currentWeeklyReportStats = { from, to, strength, prevStrength, cardio, streak, weight };
+
+  const weightLine = weight
+    ? `<div>Waga: ${weight.start.toFixed(1)} → ${weight.now.toFixed(1)} kg (${weight.now - weight.start <= 0 ? '↓' : '↑'} ${Math.abs(weight.now - weight.start).toFixed(1)} kg)</div>`
+    : `<div class="hint">Brak nowego pomiaru wagi w tym tygodniu.</div>`;
+
+  const emailWarning = currentClientEmail ? '' : '<div class="hint" style="color:var(--bad);">⚠️ Ten klient nie ma adresu e-mail w profilu — wysyłka będzie niemożliwa.</div>';
+
+  box.innerHTML = `
+    <div class="stat-row weekly-stat-row" style="margin:10px 0;">
+      <div class="stat"><div class="num">${strength}</div><div class="lbl">Siłowe</div></div>
+      <div class="stat"><div class="num">${cardio}</div><div class="lbl">Cardio</div></div>
+      <div class="stat"><div class="num">${streak}</div><div class="lbl">Tyg. passy</div></div>
+    </div>
+    ${weightLine}
+    ${emailWarning}
+  `;
+  restoreWeeklyReportNoteDraft();
+}
+
+function buildWeeklyReportUrl(){
+  const s = currentWeeklyReportStats;
+  if (!s) return null;
+  const note = (document.getElementById('wrNote').value || '').trim();
+  const p = new URLSearchParams({
+    name: currentClientName || '',
+    from: s.from, to: s.to,
+    strength: String(s.strength), prevStrength: String(s.prevStrength),
+    cardio: String(s.cardio), streak: String(s.streak),
+    note,
+  });
+  if (s.weight) { p.set('weightStart', String(s.weight.start)); p.set('weightNow', String(s.weight.now)); }
+  return 'raport-klienta.html?' + p.toString();
+}
+
+function previewWeeklyReport(){
+  const url = buildWeeklyReportUrl();
+  if (!url) { alert('Wybierz klienta.'); return; }
+  window.open(url, '_blank');
+}
+
+async function sendWeeklyReport(){
+  if (!currentClientId || !currentWeeklyReportStats) { alert('Wybierz klienta.'); return; }
+  if (!confirm('Wysłać ten raport do klienta e-mailem teraz?')) return;
+
+  const hint = document.getElementById('wrHint');
+  const note = (document.getElementById('wrNote').value || '').trim();
+  hint.textContent = 'Wysyłam...';
+  try {
+    const res = await fetch('/api/send-client-weekly-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: currentClientId, from: currentWeeklyReportStats.from, to: currentWeeklyReportStats.to, note }),
+    });
+    const data = await res.json();
+    if (data.ok && !data.skipped) {
+      hint.textContent = '✅ Wysłano do klienta.';
+    } else if (data.skipped) {
+      hint.textContent = '⚠️ Nie wysłano: ' + (data.reason || 'brak adresu e-mail klienta.');
+    } else {
+      hint.textContent = '❌ Błąd: ' + (data.error || 'nieznany');
+    }
+  } catch (err) {
+    hint.textContent = '❌ Błąd połączenia: ' + err.message;
+  }
 }
 
 function renderDash(meas, sets){
