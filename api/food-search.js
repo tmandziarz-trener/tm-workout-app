@@ -51,7 +51,10 @@ function normalize(p) {
   };
 }
 
-async function fetchJson(url) {
+// allow404: dla wyszukiwania po kodzie kreskowym nieznany produkt to normalna sytuacja
+// (Open Food Facts zwraca wtedy 404), a nie awaria — chcemy pokazać klientowi podpowiedź
+// "dodaj ręcznie", a nie komunikat o błędzie połączenia.
+async function fetchJson(url, allow404) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -59,6 +62,7 @@ async function fetchJson(url) {
       headers: { 'User-Agent': UA, 'Accept': 'application/json' },
       signal: controller.signal,
     });
+    if (res.status === 404 && allow404) return { status: 0 };
     if (!res.ok) throw new Error('Baza produktów odpowiedziała błędem ' + res.status);
     return await res.json();
   } finally {
@@ -79,7 +83,7 @@ export default async function handler(req, res) {
     if (barcode) {
       const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`
         + `?fields=product_name,product_name_pl,brands,code,nutriments`;
-      const data = await fetchJson(url);
+      const data = await fetchJson(url, true);
       if (data?.status !== 1 || !data?.product) {
         return res.status(200).json({ ok: true, products: [], notFound: true });
       }
