@@ -157,6 +157,124 @@ canvas{max-height:260px;}
 .history-item .hi-info strong{font-size:14px;}
 .history-item .hi-info .hint{margin-top:2px;}
 
+/* ===== DIETA — licznik kalorii, baza produktów, posiłki ===== */
+
+/* Pierścień kalorii: conic-gradient rysuje wypełnienie od góry zgodnie z ruchem wskazówek,
+   a wewnętrzne białe koło robi z niego obwódkę. Zmienna --pct (0-100) ustawiana z JS. */
+.kcal-ring-wrap{display:flex;align-items:center;gap:18px;margin-bottom:16px;}
+.kcal-ring{
+  --pct:0;
+  position:relative;width:118px;height:118px;border-radius:50%;flex-shrink:0;
+  background:conic-gradient(var(--accent) calc(var(--pct)*1%), #ece8e2 0);
+  transition:background .45s ease;
+}
+.kcal-ring.over{background:conic-gradient(var(--bad) calc(var(--pct)*1%), #ece8e2 0);}
+.kcal-ring-inner{
+  position:absolute;inset:11px;border-radius:50%;background:var(--card);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+}
+.kcal-ring-inner .kcal-num{font-size:25px;font-weight:800;line-height:1.05;}
+.kcal-ring-inner .kcal-lbl{font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+.kcal-side{flex:1;min-width:0;}
+.kcal-side .kcal-eaten{font-size:14px;margin-bottom:2px;}
+.kcal-side .kcal-eaten b{font-size:17px;}
+.kcal-side .kcal-target{font-size:12px;color:var(--text-muted);}
+
+/* Paski makro — trzy kolory, żeby jednym rzutem oka było widać co "goni" a co przekroczone. */
+.macro-list{display:flex;flex-direction:column;gap:9px;margin-bottom:4px;}
+.macro-row .macro-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;}
+.macro-row .macro-head .m-name{font-weight:700;}
+.macro-row .macro-head .m-val{color:var(--text-muted);}
+.macro-bar{height:8px;border-radius:5px;background:#ece8e2;overflow:hidden;}
+.macro-bar span{display:block;height:100%;border-radius:5px;transition:width .45s ease;}
+.macro-bar .m-protein{background:#5a8a5a;}
+.macro-bar .m-fat{background:#e0a03a;}
+.macro-bar .m-carbs{background:#7a9bc4;}
+.macro-bar span.over{background:var(--bad);}
+
+/* Karty posiłków */
+.meal-card{border:1px solid var(--border);border-radius:12px;margin-bottom:12px;background:#fafaf9;overflow:hidden;}
+.meal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:#fff;border-bottom:1px solid var(--border);}
+.meal-head .meal-title{font-weight:800;font-size:14px;}
+.meal-head .meal-kcal{font-size:13px;color:var(--accent-dark);font-weight:700;white-space:nowrap;}
+.meal-add-btn{background:var(--accent);color:#fff;border:none;width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;cursor:pointer;flex-shrink:0;padding:0;}
+.meal-items{padding:4px 14px 10px;}
+.meal-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.meal-item:last-child{border-bottom:none;}
+.meal-item .mi-info{flex:1;min-width:0;}
+.meal-item .mi-name{font-weight:700;display:block;}
+.meal-item .mi-sub{font-size:11px;color:var(--text-muted);}
+.meal-item .mi-kcal{font-weight:700;white-space:nowrap;flex-shrink:0;}
+.meal-item .mi-del{background:none;border:none;color:var(--bad);font-size:15px;cursor:pointer;flex-shrink:0;padding:2px 4px;}
+.meal-empty{font-size:12px;color:var(--text-muted);padding:10px 0;}
+
+/* Wyszukiwarka produktów (arkusz wysuwany od dołu, jak w apkach mobilnych) */
+.food-sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;display:flex;align-items:flex-end;justify-content:center;animation:foodFade .15s ease;}
+.food-sheet-inner{
+  background:var(--card);width:100%;max-width:640px;max-height:88vh;
+  border-radius:18px 18px 0 0;padding:18px 18px 24px;overflow-y:auto;
+  animation:foodSlide .22s cubic-bezier(.22,1,.36,1);
+}
+@keyframes foodFade{from{opacity:0;}to{opacity:1;}}
+@keyframes foodSlide{from{transform:translateY(40px);}to{transform:translateY(0);}}
+.food-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+.food-sheet-head h2{margin:0;font-size:17px;}
+.food-close{background:none;border:none;font-size:22px;color:var(--text-muted);cursor:pointer;line-height:1;padding:0 4px;}
+.food-search-row{display:flex;gap:8px;margin-bottom:10px;}
+.food-search-row input{flex:1;}
+.food-scan-btn{flex-shrink:0;width:46px;background:var(--dark);color:#fff;border:none;border-radius:8px;font-size:19px;cursor:pointer;padding:0;}
+.food-tabs{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;}
+.food-tabs button{flex:0 0 auto;padding:8px 13px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;font-weight:700;cursor:pointer;color:var(--dark);white-space:nowrap;}
+.food-tabs button.active{background:var(--dark);color:#fff;border-color:var(--dark);}
+.food-result{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.food-result:hover{background:#fafaf9;}
+.food-result .fr-info{flex:1;min-width:0;}
+.food-result .fr-name{font-weight:700;font-size:14px;display:block;}
+.food-result .fr-sub{font-size:11px;color:var(--text-muted);}
+.food-result .fr-kcal{font-weight:800;color:var(--accent-dark);font-size:13px;white-space:nowrap;flex-shrink:0;}
+
+/* Wybór porcji po kliknięciu produktu */
+.portion-box{border:1px solid var(--accent);border-radius:12px;padding:14px;background:#fffaf3;margin-bottom:12px;}
+.portion-box .pb-name{font-weight:800;font-size:15px;margin-bottom:2px;}
+.portion-box .pb-sub{font-size:12px;color:var(--text-muted);margin-bottom:10px;}
+.portion-quick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.portion-quick button{flex:0 0 auto;padding:7px 12px;border-radius:20px;border:1px solid var(--border);background:#fff;font-size:12px;font-weight:700;cursor:pointer;color:var(--dark);}
+.portion-quick button:active{background:var(--accent);color:#fff;}
+.portion-preview{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0;}
+.portion-preview .pp{background:#fff;border:1px solid var(--border);border-radius:8px;padding:7px 4px;text-align:center;}
+.portion-preview .pp-num{font-weight:800;font-size:14px;}
+.portion-preview .pp-lbl{font-size:9px;color:var(--text-muted);text-transform:uppercase;}
+
+/* Skaner kodów kreskowych */
+.scanner-box{position:relative;border-radius:12px;overflow:hidden;background:#000;margin-bottom:12px;}
+.scanner-box video{width:100%;display:block;max-height:300px;object-fit:cover;}
+.scanner-frame{position:absolute;inset:18% 12%;border:3px solid var(--accent);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.35);pointer-events:none;}
+.scanner-hint{text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:10px;}
+
+/* Gotowe posiłki */
+.saved-meal{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--border);}
+.saved-meal:last-child{border-bottom:none;}
+.saved-meal .sm-info{flex:1;min-width:0;cursor:pointer;}
+.saved-meal .sm-name{font-weight:700;font-size:14px;display:block;}
+.saved-meal .sm-sub{font-size:11px;color:var(--text-muted);}
+.saved-meal .sm-del{background:none;border:none;color:var(--bad);font-size:15px;cursor:pointer;flex-shrink:0;}
+
+/* Pasek dnia (nawigacja po datach) */
+.day-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+.day-nav button{background:#fff;border:1px solid var(--border);border-radius:9px;width:38px;height:38px;font-size:16px;cursor:pointer;color:var(--dark);flex-shrink:0;padding:0;}
+.day-nav .day-label{font-weight:800;font-size:14px;text-align:center;flex:1;}
+.day-nav .day-label span{display:block;font-size:11px;color:var(--text-muted);font-weight:400;}
+
+/* Podgląd diety w panelu trenera */
+.diet-day-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;background:#fafaf9;cursor:pointer;}
+.diet-day-row .ddr-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.diet-day-row .ddr-date{font-weight:700;font-size:14px;}
+.diet-day-row .ddr-kcal{font-size:13px;font-weight:700;color:var(--accent-dark);white-space:nowrap;}
+.diet-day-detail{padding:10px 0 0;font-size:13px;}
+.diet-day-detail .ddd-meal{margin-bottom:8px;}
+.diet-day-detail .ddd-meal b{display:block;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.4px;margin-bottom:3px;}
+.diet-day-detail .ddd-item{display:flex;justify-content:space-between;gap:8px;padding:3px 0;}
+
 /* ===== Raport ===== */
 .report-header{background:var(--card);border:1px solid var(--border);border-top:5px solid var(--accent);padding:24px 24px 20px;border-radius:14px;margin-bottom:20px;}
 .report-header .logo-img{height:34px;margin-bottom:14px;}
