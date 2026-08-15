@@ -119,22 +119,92 @@
       <button id="tab-records" onclick="showTab('records')">🏆 Rekordy</button>
     </div>
 
-    <!-- ----- CHECKIN ŻYWIENIOWY (DZIENNY) ----- -->
-    <div id="panel-diet" class="card" style="display:none;">
-      <h2>Dzienny checkin — białko</h2>
-      <div class="sub">Krótkie pytanie na każdy dzień: udało się zjeść wystarczająco białka?</div>
-      <div class="field"><label>Data</label><input type="date" id="dc_date"></div>
-      <div class="mood-picker" style="margin-bottom:14px;">
-        <button type="button" class="mood-btn" id="dc-yes" onclick="setProteinOk(true)">✅ Tak</button>
-        <button type="button" class="mood-btn" id="dc-no" onclick="setProteinOk(false)">❌ Nie</button>
-      </div>
-      <div class="field"><label>Notatka (opcjonalnie)</label><input type="text" id="dc_note" placeholder="np. za mało czasu, jadłem na mieście..."></div>
-      <button class="btn" onclick="saveDailyCheckin()" id="btn-save-checkin">Zapisz checkin</button>
-      <div class="hint" id="checkinSavedHint" style="margin-top:10px;"></div>
+    <!-- ----- DIETA: LICZNIK KALORII I DZIENNIK ŻYWIENIOWY ----- -->
+    <div id="panel-diet" style="display:none;">
 
-      <div class="spacer"></div>
-      <h2 style="margin-top:10px;">Ostatnie 14 dni</h2>
-      <div id="checkinHistoryList"></div>
+      <div class="card">
+        <div class="day-nav">
+          <button onclick="shiftDietDay(-1)" title="Poprzedni dzień">‹</button>
+          <div class="day-label" id="dietDayLabel">Dziś<span id="dietDaySub"></span></div>
+          <button onclick="shiftDietDay(1)" title="Następny dzień">›</button>
+        </div>
+
+        <div class="kcal-ring-wrap">
+          <div class="kcal-ring" id="kcalRing">
+            <div class="kcal-ring-inner">
+              <div class="kcal-num" id="kcalLeftNum">0</div>
+              <div class="kcal-lbl" id="kcalLeftLbl">zostało kcal</div>
+            </div>
+          </div>
+          <div class="kcal-side">
+            <div class="kcal-eaten">Zjedzone: <b id="kcalEaten">0</b> kcal</div>
+            <div class="kcal-target" id="kcalTargetLine">Cel nieustawiony — poproś trenera.</div>
+          </div>
+        </div>
+
+        <div class="macro-list" id="macroList"></div>
+      </div>
+
+      <div id="mealsBox"></div>
+
+      <div class="card">
+        <h2>🍽️ Moje gotowe posiłki</h2>
+        <div class="sub">Zestaw produktów zapisany pod jedną nazwą — dodajesz go do dnia jednym kliknięciem.</div>
+        <div id="savedMealsList"></div>
+      </div>
+
+    </div>
+
+    <!-- Arkusz wyszukiwania produktów (wysuwany od dołu) -->
+    <div id="foodSheet" class="food-sheet" style="display:none;" onclick="if(event.target===this) closeFoodSheet()">
+      <div class="food-sheet-inner">
+        <div class="food-sheet-head">
+          <h2 id="foodSheetTitle">Dodaj do posiłku</h2>
+          <button class="food-close" onclick="closeFoodSheet()">✕</button>
+        </div>
+
+        <div id="portionBox"></div>
+
+        <div id="scannerWrap" style="display:none;">
+          <div class="scanner-box">
+            <video id="scannerVideo" playsinline muted></video>
+            <div class="scanner-frame"></div>
+          </div>
+          <div class="scanner-hint" id="scannerHint">Skieruj aparat na kod kreskowy produktu.</div>
+          <button class="btn secondary" style="width:100%;" onclick="stopScanner()">Zamknij skaner</button>
+        </div>
+
+        <div id="foodMainWrap">
+          <div class="food-search-row">
+            <input type="text" id="foodQuery" placeholder="Szukaj produktu, np. twaróg półtłusty..." oninput="onFoodQueryInput()">
+            <button class="food-scan-btn" onclick="startScanner()" title="Skanuj kod kreskowy">▐▌</button>
+          </div>
+
+          <div class="food-tabs">
+            <button id="ftab-search" class="active" onclick="showFoodTab('search')">Szukaj</button>
+            <button id="ftab-recent" onclick="showFoodTab('recent')">Ostatnie</button>
+            <button id="ftab-mine" onclick="showFoodTab('mine')">Moje produkty</button>
+            <button id="ftab-new" onclick="showFoodTab('new')">+ Nowy produkt</button>
+          </div>
+
+          <div id="foodResults"></div>
+
+          <div id="foodNewForm" style="display:none;">
+            <div class="sub">Produkt, którego nie ma w bazie — np. domowe danie albo lokalna piekarnia. Wartości podaj na 100 g (znajdziesz je na opakowaniu).</div>
+            <div class="field"><label>Nazwa</label><input type="text" id="np_name" placeholder="np. Zupa pomidorowa mamy"></div>
+            <div class="grid2">
+              <div class="field"><label>Kcal / 100 g</label><input type="number" step="1" id="np_kcal"></div>
+              <div class="field"><label>Białko / 100 g</label><input type="number" step="0.1" id="np_protein"></div>
+            </div>
+            <div class="grid2">
+              <div class="field"><label>Tłuszcze / 100 g</label><input type="number" step="0.1" id="np_fat"></div>
+              <div class="field"><label>Węgle / 100 g</label><input type="number" step="0.1" id="np_carbs"></div>
+            </div>
+            <button class="btn" onclick="saveNewProduct()">Zapisz produkt</button>
+            <div class="hint" id="npHint"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ----- POROWNANIE ZDBĘĆ SYLWETKI ----- -->
@@ -269,7 +339,6 @@ const MAX_PHOTO_MB = 8;
 
 document.getElementById('t_date').value = todayStr();
 document.getElementById('m_date').value = todayStr();
-document.getElementById('dc_date').value = todayStr();
 
 const DEFAULT_REST_SECONDS = 120;
 const savedRestSeconds = localStorage.getItem('tmw_rest_seconds');
@@ -935,7 +1004,7 @@ function showTab(which){
   document.getElementById('panel-diet').style.display = which==='diet' ? 'block' : 'none';
   document.getElementById('panel-history').style.display = which==='history' ? 'block' : 'none';
   document.getElementById('panel-records').style.display = which==='records' ? 'block' : 'none';
-  if (which==='diet') loadDailyCheckins(localStorage.getItem('tmw_client_id'));
+  if (which==='diet') loadDiet(localStorage.getItem('tmw_client_id'));
   if (which === 'history') loadHistory();
   if (which === 'plan') loadPlan();
   if (which === 'records') loadPRs(localStorage.getItem('tmw_client_id'));
@@ -1060,56 +1129,583 @@ async function loadMeasHistory(clientId){
   `).join('');
 }
 
-// ---------- DZIENNY CHECKIN ŻYWIENIOWY (BIAŁKO) ----------
-let selectedProteinOk = null;
+// ==================== DIETA: LICZNIK KALORII I DZIENNIK ŻYWIENIOWY ====================
+// Zastępuje dawny prosty checkin "czy zjadłeś dość białka" — teraz białko (i reszta makro)
+// liczy się samo z faktycznie dodanych produktów.
+//
+// Model danych:
+//   diet_log_items  — pojedynczy produkt zjedzony w danym posiłku danego dnia (wartości
+//                     zapisane już PRZELICZONE na zjedzoną porcję, patrz migracja),
+//   diet_products   — własne produkty klienta (to, czego nie ma w bazie zewnętrznej),
+//   diet_meals      — gotowe zestawy ("Moje śniadanie") dodawane jednym kliknięciem.
+//
+// Produkty z zewnątrz pobieramy przez nasz endpoint /api/food-search (Open Food Facts),
+// który zwraca zawsze ten sam, prosty kształt danych.
 
-function setProteinOk(val){
-  selectedProteinOk = val;
-  document.getElementById('dc-yes').classList.toggle('selected', val === true);
-  document.getElementById('dc-no').classList.toggle('selected', val === false);
+const MEALS = [
+  { key: 'sniadanie', label: 'Śniadanie', icon: '🌅' },
+  { key: 'obiad',     label: 'Obiad',     icon: '🍽️' },
+  { key: 'kolacja',   label: 'Kolacja',   icon: '🌙' },
+  { key: 'przekaski', label: 'Przekąski', icon: '🍎' },
+];
+
+let dietDate = todayStr();          // dzień aktualnie oglądany w zakładce Dieta
+let dietItems = [];                 // wpisy dziennika na ten dzień
+let dietTargets = null;             // { kcal, protein, fat, carbs } — cele od trenera
+let myProducts = [];                // własne produkty klienta
+let savedMeals = [];                // gotowe posiłki klienta
+let activeMealKey = 'sniadanie';    // do którego posiłku dodajemy w otwartym arkuszu
+let selectedProduct = null;         // produkt wybrany w arkuszu, czeka na podanie gramatury
+let foodSearchTimer = null;
+
+function dietNum(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function roundK(v){ return Math.round(dietNum(v)); }
+function round1(v){ return Math.round(dietNum(v) * 10) / 10; }
+
+// ---------- WCZYTANIE CAŁEJ ZAKŁADKI ----------
+async function loadDiet(clientId){
+  if (!clientId) return;
+  const [{ data: client }, { data: items }, { data: prods }, { data: meals }] = await Promise.all([
+    sb.from('clients').select('kcal_target,protein_target_g,fat_target_g,carbs_target_g').eq('id', clientId).single(),
+    sb.from('diet_log_items').select('*').eq('client_id', clientId).eq('logged_at', dietDate).order('created_at'),
+    sb.from('diet_products').select('*').eq('client_id', clientId).order('name'),
+    sb.from('diet_meals').select('*').eq('client_id', clientId).order('name'),
+  ]);
+
+  dietTargets = client && client.kcal_target ? {
+    kcal: dietNum(client.kcal_target),
+    protein: dietNum(client.protein_target_g),
+    fat: dietNum(client.fat_target_g),
+    carbs: dietNum(client.carbs_target_g),
+  } : null;
+
+  dietItems = items || [];
+  myProducts = prods || [];
+  savedMeals = meals || [];
+
+  renderDietDay();
+  renderDietSummary();
+  renderMeals();
+  renderSavedMeals();
 }
 
-async function saveDailyCheckin(){
-  const clientId = localStorage.getItem('tmw_client_id');
-  const date = document.getElementById('dc_date').value;
-  const note = document.getElementById('dc_note').value.trim() || null;
-  const hint = document.getElementById('checkinSavedHint');
-  if (!date) { showToast('Wybierz datę.'); return; }
-  if (selectedProteinOk === null) { showToast('Zaznacz Tak albo Nie.'); return; }
+function shiftDietDay(delta){
+  const d = new Date(dietDate + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const next = fmtDateLocal(d);
+  // Nie pozwalamy przeskoczyć w przyszłość — dziennik dotyczy tego, co już zjedzone.
+  if (next > todayStr()) { showToast('To już przyszłość 🙂'); return; }
+  dietDate = next;
+  loadDiet(localStorage.getItem('tmw_client_id'));
+}
 
-  const btn = document.getElementById('btn-save-checkin');
-  btn.disabled = true;
-  try {
-    const { error } = await sb.from('daily_checkins')
-      .upsert({ client_id: clientId, checkin_date: date, protein_ok: selectedProteinOk, note }, { onConflict: 'client_id,checkin_date' });
-    if (error) throw error;
-    hint.textContent = 'Zapisano checkin na ' + date + '.';
-    document.getElementById('dc_note').value = '';
-    loadDailyCheckins(clientId);
-  } catch (err) {
-    hint.textContent = 'Błąd zapisu: ' + err.message;
-  } finally {
-    btn.disabled = false;
+function renderDietDay(){
+  const label = document.getElementById('dietDayLabel');
+  const sub = document.getElementById('dietDaySub');
+  if (!label) return;
+  const today = todayStr();
+  const yest = (() => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 1); return fmtDateLocal(d); })();
+  const nameText = dietDate === today ? 'Dziś' : (dietDate === yest ? 'Wczoraj' : dietDate);
+  label.childNodes[0].nodeValue = nameText;
+  sub.textContent = dietDate === today || dietDate === yest ? dietDate : '';
+}
+
+// ---------- PIERŚCIEŃ KALORII I PASKI MAKRO ----------
+function dietTotals(){
+  return dietItems.reduce((t, it) => ({
+    kcal: t.kcal + dietNum(it.kcal),
+    protein: t.protein + dietNum(it.protein_g),
+    fat: t.fat + dietNum(it.fat_g),
+    carbs: t.carbs + dietNum(it.carbs_g),
+  }), { kcal: 0, protein: 0, fat: 0, carbs: 0 });
+}
+
+function renderDietSummary(){
+  const ring = document.getElementById('kcalRing');
+  if (!ring) return;
+  const t = dietTotals();
+
+  document.getElementById('kcalEaten').textContent = roundK(t.kcal);
+
+  if (dietTargets && dietTargets.kcal > 0) {
+    const left = dietTargets.kcal - t.kcal;
+    const pct = Math.min(100, Math.max(0, (t.kcal / dietTargets.kcal) * 100));
+    ring.style.setProperty('--pct', pct.toFixed(1));
+    ring.classList.toggle('over', t.kcal > dietTargets.kcal);
+    document.getElementById('kcalLeftNum').textContent = roundK(Math.abs(left));
+    document.getElementById('kcalLeftLbl').textContent = left >= 0 ? 'zostało kcal' : 'kcal ponad cel';
+    document.getElementById('kcalTargetLine').textContent = 'Cel: ' + roundK(dietTargets.kcal) + ' kcal';
+  } else {
+    ring.style.setProperty('--pct', 0);
+    ring.classList.remove('over');
+    document.getElementById('kcalLeftNum').textContent = roundK(t.kcal);
+    document.getElementById('kcalLeftLbl').textContent = 'kcal zjedzone';
+    document.getElementById('kcalTargetLine').textContent = 'Cel nieustawiony — poproś trenera.';
+  }
+
+  const macros = [
+    { name: 'Białko', cls: 'm-protein', val: t.protein, target: dietTargets ? dietTargets.protein : 0 },
+    { name: 'Tłuszcze', cls: 'm-fat', val: t.fat, target: dietTargets ? dietTargets.fat : 0 },
+    { name: 'Węgle', cls: 'm-carbs', val: t.carbs, target: dietTargets ? dietTargets.carbs : 0 },
+  ];
+  document.getElementById('macroList').innerHTML = macros.map(m => {
+    const hasTarget = m.target > 0;
+    const pct = hasTarget ? Math.min(100, (m.val / m.target) * 100) : 0;
+    const over = hasTarget && m.val > m.target;
+    return `
+      <div class="macro-row">
+        <div class="macro-head">
+          <span class="m-name">${m.name}</span>
+          <span class="m-val">${round1(m.val)} g${hasTarget ? ' / ' + roundK(m.target) + ' g' : ''}</span>
+        </div>
+        <div class="macro-bar"><span class="${m.cls}${over ? ' over' : ''}" style="width:${pct}%;"></span></div>
+      </div>`;
+  }).join('');
+}
+
+// ---------- KARTY POSIŁKÓW ----------
+function renderMeals(){
+  const box = document.getElementById('mealsBox');
+  if (!box) return;
+  box.innerHTML = MEALS.map(meal => {
+    const items = dietItems.filter(i => i.meal_type === meal.key);
+    const kcal = items.reduce((s, i) => s + dietNum(i.kcal), 0);
+    const rows = items.length
+      ? items.map(i => `
+          <div class="meal-item">
+            <div class="mi-info">
+              <span class="mi-name">${escapeHtmlLocal(i.product_name)}</span>
+              <span class="mi-sub">${roundK(i.grams)} g${i.brand ? ' · ' + escapeHtmlLocal(i.brand) : ''} · B ${round1(i.protein_g)} / T ${round1(i.fat_g)} / W ${round1(i.carbs_g)}</span>
+            </div>
+            <span class="mi-kcal">${roundK(i.kcal)} kcal</span>
+            <button class="mi-del" onclick="deleteDietItem('${i.id}')" title="Usuń">✕</button>
+          </div>`).join('')
+      : '<div class="meal-empty">Nic tu jeszcze nie ma — dodaj plusem po prawej.</div>';
+    return `
+      <div class="meal-card">
+        <div class="meal-head">
+          <span class="meal-title">${meal.icon} ${meal.label}</span>
+          <span class="meal-kcal">${roundK(kcal)} kcal</span>
+          <button class="meal-add-btn" onclick="openFoodSheet('${meal.key}')" title="Dodaj produkt">+</button>
+        </div>
+        <div class="meal-items">${rows}</div>
+      </div>`;
+  }).join('');
+}
+
+async function deleteDietItem(id){
+  const { error } = await sb.from('diet_log_items').delete().eq('id', id);
+  if (error) { showToast('Błąd usuwania: ' + error.message); return; }
+  dietItems = dietItems.filter(i => i.id !== id);
+  renderDietSummary(); renderMeals();
+}
+
+// ---------- ARKUSZ WYSZUKIWANIA PRODUKTÓW ----------
+function openFoodSheet(mealKey){
+  activeMealKey = mealKey;
+  selectedProduct = null;
+  const meal = MEALS.find(m => m.key === mealKey);
+  document.getElementById('foodSheetTitle').textContent = 'Dodaj do: ' + (meal ? meal.label : 'posiłku');
+  document.getElementById('foodSheet').style.display = 'flex';
+  document.getElementById('portionBox').innerHTML = '';
+  document.getElementById('foodQuery').value = '';
+  showFoodTab('recent');
+}
+
+function closeFoodSheet(){
+  stopScanner();
+  document.getElementById('foodSheet').style.display = 'none';
+}
+
+function showFoodTab(tab){
+  ['search','recent','mine','new'].forEach(t => {
+    const btn = document.getElementById('ftab-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  const isNew = tab === 'new';
+  document.getElementById('foodNewForm').style.display = isNew ? 'block' : 'none';
+  document.getElementById('foodResults').style.display = isNew ? 'none' : 'block';
+  if (tab === 'recent') renderRecentProducts();
+  if (tab === 'mine') renderMyProducts();
+  if (tab === 'search') {
+    const q = document.getElementById('foodQuery').value.trim();
+    document.getElementById('foodResults').innerHTML = q
+      ? '<div class="hint">Szukam...</div>'
+      : '<div class="hint">Wpisz nazwę produktu w polu wyżej.</div>';
+    if (q) searchFood(q);
   }
 }
 
-async function loadDailyCheckins(clientId){
-  const list = document.getElementById('checkinHistoryList');
-  if (!list || !clientId) return;
-  list.innerHTML = '<div class="hint">Wczytywanie...</div>';
-  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { data, error } = await sb.from('daily_checkins').select('*')
-    .eq('client_id', clientId).gte('checkin_date', since).order('checkin_date', { ascending: false });
-  if (error) { list.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
-  if (!data || !data.length) { list.innerHTML = '<div class="hint">Brak zapisanych checkinów z ostatnich 14 dni.</div>'; return; }
-  list.innerHTML = data.map(c => `
-    <div class="history-item">
-      <div class="hi-info">
-        <strong>${c.checkin_date}</strong>
-        <div class="hint">${c.protein_ok ? '✅ Białko OK' : '❌ Za mało białka'}${c.note ? ' · ' + escapeHtmlLocal(c.note) : ''}</div>
+function onFoodQueryInput(){
+  const q = document.getElementById('foodQuery').value.trim();
+  showFoodTab('search');
+  clearTimeout(foodSearchTimer);
+  if (q.length < 3) {
+    document.getElementById('foodResults').innerHTML = '<div class="hint">Wpisz co najmniej 3 znaki.</div>';
+    return;
+  }
+  // Debounce — nie strzelamy do API przy każdej literze.
+  foodSearchTimer = setTimeout(() => searchFood(q), 450);
+}
+
+async function searchFood(q){
+  const box = document.getElementById('foodResults');
+  box.innerHTML = '<div class="hint">Szukam w bazie produktów...</div>';
+  try {
+    const res = await fetch('/api/food-search?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    if (!data.products || !data.products.length) {
+      box.innerHTML = '<div class="hint">' + (data.error || 'Nic nie znaleziono.')
+        + ' Możesz dodać ten produkt ręcznie w zakładce „+ Nowy produkt”.</div>';
+      return;
+    }
+    renderFoodResults(data.products, box);
+  } catch (err) {
+    box.innerHTML = '<div class="hint">Błąd połączenia: ' + err.message + '</div>';
+  }
+}
+
+function renderFoodResults(products, box){
+  // Produkty trzymamy w zmiennej, a w onclick przekazujemy tylko indeks — dzięki temu
+  // nazwy z apostrofami czy cudzysłowami nie rozwalają atrybutu HTML.
+  window.__foodResults = products;
+  box.innerHTML = products.map((p, i) => `
+    <div class="food-result" onclick="pickProduct(${i})">
+      <div class="fr-info">
+        <span class="fr-name">${escapeHtmlLocal(p.name)}</span>
+        <span class="fr-sub">${p.brand ? escapeHtmlLocal(p.brand) + ' · ' : ''}B ${round1(p.protein_per_100g)} / T ${round1(p.fat_per_100g)} / W ${round1(p.carbs_per_100g)} na 100 g</span>
       </div>
-    </div>
-  `).join('');
+      <span class="fr-kcal">${roundK(p.kcal_per_100g)} kcal</span>
+    </div>`).join('');
+}
+
+function renderRecentProducts(){
+  const box = document.getElementById('foodResults');
+  // "Ostatnie" liczymy z historii dziennika: co klient dodawał najczęściej/najświeżej.
+  sb.from('diet_log_items').select('product_name,brand,barcode,kcal_per_100g,protein_per_100g,fat_per_100g,carbs_per_100g')
+    .eq('client_id', localStorage.getItem('tmw_client_id'))
+    .order('created_at', { ascending: false }).limit(60)
+    .then(({ data }) => {
+      const seen = new Set();
+      const uniq = [];
+      (data || []).forEach(r => {
+        const key = (r.product_name || '') + '|' + (r.brand || '');
+        if (seen.has(key) || !r.kcal_per_100g) return;
+        seen.add(key);
+        uniq.push({
+          name: r.product_name, brand: r.brand, barcode: r.barcode,
+          kcal_per_100g: r.kcal_per_100g, protein_per_100g: r.protein_per_100g,
+          fat_per_100g: r.fat_per_100g, carbs_per_100g: r.carbs_per_100g,
+        });
+      });
+      if (!uniq.length) { box.innerHTML = '<div class="hint">Tu pojawią się produkty, które już dodawałeś.</div>'; return; }
+      renderFoodResults(uniq.slice(0, 20), box);
+    });
+}
+
+function renderMyProducts(){
+  const box = document.getElementById('foodResults');
+  if (!myProducts.length) { box.innerHTML = '<div class="hint">Nie masz jeszcze własnych produktów. Dodaj je w zakładce „+ Nowy produkt”.</div>'; return; }
+  renderFoodResults(myProducts.map(p => ({
+    name: p.name, brand: p.brand, barcode: p.barcode,
+    kcal_per_100g: p.kcal_per_100g, protein_per_100g: p.protein_per_100g,
+    fat_per_100g: p.fat_per_100g, carbs_per_100g: p.carbs_per_100g,
+  })), box);
+}
+
+// ---------- WYBÓR PORCJI ----------
+function pickProduct(idx){
+  const p = (window.__foodResults || [])[idx];
+  if (!p) return;
+  selectedProduct = p;
+  renderPortionBox(100);
+  document.getElementById('portionBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderPortionBox(grams){
+  const p = selectedProduct;
+  if (!p) return;
+  const g = dietNum(grams) || 100;
+  const f = g / 100;
+  document.getElementById('portionBox').innerHTML = `
+    <div class="portion-box">
+      <div class="pb-name">${escapeHtmlLocal(p.name)}</div>
+      <div class="pb-sub">${p.brand ? escapeHtmlLocal(p.brand) + ' · ' : ''}${roundK(p.kcal_per_100g)} kcal / 100 g</div>
+      <div class="portion-quick">
+        ${[30, 50, 100, 150, 200, 250].map(v => `<button onclick="setPortion(${v})">${v} g</button>`).join('')}
+      </div>
+      <div class="field"><label>Ile gramów</label><input type="number" step="1" id="portionGrams" value="${roundK(g)}" oninput="renderPortionPreview()"></div>
+      <div class="portion-preview" id="portionPreview">
+        <div class="pp"><div class="pp-num">${roundK(p.kcal_per_100g * f)}</div><div class="pp-lbl">kcal</div></div>
+        <div class="pp"><div class="pp-num">${round1(p.protein_per_100g * f)}</div><div class="pp-lbl">białko</div></div>
+        <div class="pp"><div class="pp-num">${round1(p.fat_per_100g * f)}</div><div class="pp-lbl">tłuszcz</div></div>
+        <div class="pp"><div class="pp-num">${round1(p.carbs_per_100g * f)}</div><div class="pp-lbl">węgle</div></div>
+      </div>
+      <button class="btn" onclick="addProductToMeal()">Dodaj do posiłku</button>
+    </div>`;
+}
+
+function setPortion(v){
+  const input = document.getElementById('portionGrams');
+  if (input) { input.value = v; renderPortionPreview(); }
+}
+
+function renderPortionPreview(){
+  const p = selectedProduct;
+  const g = dietNum(document.getElementById('portionGrams').value);
+  if (!p) return;
+  const f = g / 100;
+  document.getElementById('portionPreview').innerHTML = `
+    <div class="pp"><div class="pp-num">${roundK(p.kcal_per_100g * f)}</div><div class="pp-lbl">kcal</div></div>
+    <div class="pp"><div class="pp-num">${round1(p.protein_per_100g * f)}</div><div class="pp-lbl">białko</div></div>
+    <div class="pp"><div class="pp-num">${round1(p.fat_per_100g * f)}</div><div class="pp-lbl">tłuszcz</div></div>
+    <div class="pp"><div class="pp-num">${round1(p.carbs_per_100g * f)}</div><div class="pp-lbl">węgle</div></div>`;
+}
+
+async function addProductToMeal(){
+  const p = selectedProduct;
+  if (!p) return;
+  const grams = dietNum(document.getElementById('portionGrams').value);
+  if (grams <= 0) { showToast('Podaj gramaturę.'); return; }
+  const f = grams / 100;
+
+  const row = {
+    client_id: localStorage.getItem('tmw_client_id'),
+    logged_at: dietDate,
+    meal_type: activeMealKey,
+    product_name: p.name,
+    brand: p.brand || null,
+    barcode: p.barcode || null,
+    grams,
+    kcal: round1(p.kcal_per_100g * f),
+    protein_g: round1(p.protein_per_100g * f),
+    fat_g: round1(p.fat_per_100g * f),
+    carbs_g: round1(p.carbs_per_100g * f),
+    kcal_per_100g: p.kcal_per_100g,
+    protein_per_100g: p.protein_per_100g,
+    fat_per_100g: p.fat_per_100g,
+    carbs_per_100g: p.carbs_per_100g,
+    source: p.barcode ? 'off' : 'wlasny',
+  };
+
+  const { data, error } = await sb.from('diet_log_items').insert(row).select().single();
+  if (error) { showToast('Błąd zapisu: ' + error.message); return; }
+  dietItems.push(data);
+  renderDietSummary(); renderMeals();
+  closeFoodSheet();
+  showToast('Dodano: ' + p.name);
+}
+
+// ---------- WŁASNY PRODUKT ----------
+async function saveNewProduct(){
+  const name = document.getElementById('np_name').value.trim();
+  const hint = document.getElementById('npHint');
+  if (!name) { hint.textContent = 'Podaj nazwę produktu.'; return; }
+  const kcal = dietNum(document.getElementById('np_kcal').value);
+  if (kcal <= 0) { hint.textContent = 'Podaj kalorie na 100 g.'; return; }
+
+  const row = {
+    client_id: localStorage.getItem('tmw_client_id'),
+    name,
+    kcal_per_100g: kcal,
+    protein_per_100g: dietNum(document.getElementById('np_protein').value),
+    fat_per_100g: dietNum(document.getElementById('np_fat').value),
+    carbs_per_100g: dietNum(document.getElementById('np_carbs').value),
+  };
+  const { data, error } = await sb.from('diet_products').insert(row).select().single();
+  if (error) { hint.textContent = 'Błąd zapisu: ' + error.message; return; }
+
+  myProducts.push(data);
+  hint.textContent = '';
+  ['np_name','np_kcal','np_protein','np_fat','np_carbs'].forEach(id => { document.getElementById(id).value = ''; });
+  // Od razu przechodzimy do wyboru porcji — po to klient dodawał ten produkt.
+  selectedProduct = {
+    name: data.name, brand: data.brand, barcode: null,
+    kcal_per_100g: data.kcal_per_100g, protein_per_100g: data.protein_per_100g,
+    fat_per_100g: data.fat_per_100g, carbs_per_100g: data.carbs_per_100g,
+  };
+  showFoodTab('mine');
+  renderPortionBox(100);
+  showToast('Produkt zapisany.');
+}
+
+// ---------- SKANER KODÓW KRESKOWYCH ----------
+// Korzystamy z wbudowanego w przeglądarkę BarcodeDetector (Chrome/Android — czyli tam,
+// gdzie klienci realnie skanują). Gdy go nie ma (np. iPhone/Safari), mówimy o tym wprost
+// i zostaje wyszukiwanie po nazwie — zamiast dociągać ciężką bibliotekę do wszystkich.
+let scannerStream = null;
+let scannerLoopId = null;
+
+async function startScanner(){
+  const wrap = document.getElementById('scannerWrap');
+  const main = document.getElementById('foodMainWrap');
+  const hint = document.getElementById('scannerHint');
+
+  if (!('BarcodeDetector' in window)) {
+    showToast('Ta przeglądarka nie obsługuje skanera — wyszukaj produkt po nazwie.');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Brak dostępu do aparatu w tej przeglądarce.');
+    return;
+  }
+
+  wrap.style.display = 'block';
+  main.style.display = 'none';
+  hint.textContent = 'Uruchamiam aparat...';
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }, audio: false,
+    });
+    const video = document.getElementById('scannerVideo');
+    video.srcObject = scannerStream;
+    await video.play();
+    hint.textContent = 'Skieruj aparat na kod kreskowy produktu.';
+
+    const detector = new BarcodeDetector({
+      formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'],
+    });
+
+    const tick = async () => {
+      if (!scannerStream) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes && codes.length) {
+          const code = codes[0].rawValue;
+          stopScanner();
+          lookupBarcode(code);
+          return;
+        }
+      } catch (e) { /* pojedyncza nieudana klatka nic nie znaczy — próbujemy dalej */ }
+      scannerLoopId = requestAnimationFrame(tick);
+    };
+    scannerLoopId = requestAnimationFrame(tick);
+  } catch (err) {
+    hint.textContent = 'Nie udało się uruchomić aparatu: ' + err.message;
+    showToast('Brak dostępu do aparatu — sprawdź uprawnienia w przeglądarce.');
+    stopScanner();
+  }
+}
+
+function stopScanner(){
+  if (scannerLoopId) { cancelAnimationFrame(scannerLoopId); scannerLoopId = null; }
+  if (scannerStream) { scannerStream.getTracks().forEach(t => t.stop()); scannerStream = null; }
+  const wrap = document.getElementById('scannerWrap');
+  const main = document.getElementById('foodMainWrap');
+  if (wrap) wrap.style.display = 'none';
+  if (main) main.style.display = 'block';
+}
+
+async function lookupBarcode(code){
+  const box = document.getElementById('foodResults');
+  showFoodTab('search');
+  box.innerHTML = '<div class="hint">Szukam produktu o kodzie ' + escapeHtmlLocal(code) + '...</div>';
+  try {
+    const res = await fetch('/api/food-search?barcode=' + encodeURIComponent(code));
+    const data = await res.json();
+    if (!data.products || !data.products.length) {
+      box.innerHTML = '<div class="hint">Nie znaleziono produktu o kodzie ' + escapeHtmlLocal(code)
+        + '. Dodaj go ręcznie w zakładce „+ Nowy produkt” — zostanie u Ciebie na stałe.</div>';
+      return;
+    }
+    window.__foodResults = data.products;
+    renderFoodResults(data.products, box);
+    // Jeden trafiony produkt = od razu pytamy o gramaturę, bez dodatkowego klikania.
+    pickProduct(0);
+  } catch (err) {
+    box.innerHTML = '<div class="hint">Błąd połączenia: ' + err.message + '</div>';
+  }
+}
+
+// ---------- GOTOWE POSIŁKI ----------
+function renderSavedMeals(){
+  const box = document.getElementById('savedMealsList');
+  if (!box) return;
+  const hasItems = dietItems.length > 0;
+  const saveBtn = hasItems
+    ? '<button class="btn ghost" style="width:100%;margin-bottom:10px;" onclick="saveCurrentDayAsMeal()">+ Zapisz dzisiejszy posiłek jako gotowiec</button>'
+    : '';
+  if (!savedMeals.length) {
+    box.innerHTML = saveBtn + '<div class="hint">Nie masz jeszcze zapisanych posiłków. Dodaj produkty do dnia, potem zapisz je pod jedną nazwą.</div>';
+    return;
+  }
+  box.innerHTML = saveBtn + savedMeals.map(m => `
+    <div class="saved-meal">
+      <div class="sm-info" onclick="addSavedMeal('${m.id}')">
+        <span class="sm-name">${escapeHtmlLocal(m.name)}</span>
+        <span class="sm-sub">${roundK(m.total_kcal)} kcal · B ${round1(m.total_protein_g)} / T ${round1(m.total_fat_g)} / W ${round1(m.total_carbs_g)} · ${(m.items || []).length} produktów</span>
+      </div>
+      <button class="sm-del" onclick="deleteSavedMeal('${m.id}')" title="Usuń">✕</button>
+    </div>`).join('');
+}
+
+async function saveCurrentDayAsMeal(){
+  if (!dietItems.length) { showToast('Najpierw dodaj produkty do dnia.'); return; }
+  // Podpowiadamy najbardziej "wypełniony" posiłek dnia — zwykle to jego chce się zapisać.
+  const byMeal = {};
+  dietItems.forEach(i => { byMeal[i.meal_type] = (byMeal[i.meal_type] || []).concat(i); });
+  const keys = Object.keys(byMeal);
+  const biggest = keys.sort((a, b) => byMeal[b].length - byMeal[a].length)[0];
+  const mealLabel = (MEALS.find(m => m.key === biggest) || {}).label || 'Posiłek';
+
+  const name = prompt('Nazwa gotowego posiłku:', 'Moje ' + mealLabel.toLowerCase());
+  if (!name || !name.trim()) return;
+
+  const items = byMeal[biggest].map(i => ({
+    name: i.product_name, brand: i.brand, barcode: i.barcode, grams: i.grams,
+    kcal: i.kcal, protein_g: i.protein_g, fat_g: i.fat_g, carbs_g: i.carbs_g,
+    kcal_per_100g: i.kcal_per_100g, protein_per_100g: i.protein_per_100g,
+    fat_per_100g: i.fat_per_100g, carbs_per_100g: i.carbs_per_100g,
+  }));
+  const sum = (k) => round1(items.reduce((s, i) => s + dietNum(i[k]), 0));
+
+  const { data, error } = await sb.from('diet_meals').insert({
+    client_id: localStorage.getItem('tmw_client_id'),
+    name: name.trim(),
+    items,
+    total_kcal: sum('kcal'),
+    total_protein_g: sum('protein_g'),
+    total_fat_g: sum('fat_g'),
+    total_carbs_g: sum('carbs_g'),
+  }).select().single();
+  if (error) { showToast('Błąd zapisu: ' + error.message); return; }
+  savedMeals.push(data);
+  renderSavedMeals();
+  showToast('Zapisano posiłek: ' + data.name);
+}
+
+async function addSavedMeal(mealId){
+  const meal = savedMeals.find(m => m.id === mealId);
+  if (!meal || !(meal.items || []).length) return;
+
+  const mealKey = prompt('Do którego posiłku dodać? Wpisz: sniadanie / obiad / kolacja / przekaski', 'obiad');
+  if (!mealKey) return;
+  const key = mealKey.trim().toLowerCase();
+  if (!MEALS.some(m => m.key === key)) { showToast('Nieznany posiłek: ' + mealKey); return; }
+
+  const clientId = localStorage.getItem('tmw_client_id');
+  const rows = meal.items.map(i => ({
+    client_id: clientId, logged_at: dietDate, meal_type: key,
+    product_name: i.name, brand: i.brand || null, barcode: i.barcode || null,
+    grams: i.grams, kcal: i.kcal, protein_g: i.protein_g, fat_g: i.fat_g, carbs_g: i.carbs_g,
+    kcal_per_100g: i.kcal_per_100g, protein_per_100g: i.protein_per_100g,
+    fat_per_100g: i.fat_per_100g, carbs_per_100g: i.carbs_per_100g,
+    source: 'posilek',
+  }));
+  const { data, error } = await sb.from('diet_log_items').insert(rows).select();
+  if (error) { showToast('Błąd dodawania: ' + error.message); return; }
+  dietItems = dietItems.concat(data || []);
+  renderDietSummary(); renderMeals();
+  showToast('Dodano posiłek: ' + meal.name);
+}
+
+async function deleteSavedMeal(mealId){
+  if (!confirm('Usunąć ten gotowy posiłek?')) return;
+  const { error } = await sb.from('diet_meals').delete().eq('id', mealId);
+  if (error) { showToast('Błąd usuwania: ' + error.message); return; }
+  savedMeals = savedMeals.filter(m => m.id !== mealId);
+  renderSavedMeals();
 }
 
 let progressChartInstance = null;
