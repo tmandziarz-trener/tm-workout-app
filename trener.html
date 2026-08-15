@@ -115,7 +115,25 @@
         <div class="hint" id="wrHint"></div>
       </div>
       <div class="card">
-        <h2>🍗 Dieta — checkin (7 dni)</h2>
+        <h2>🍗 Dieta — cele i realizacja</h2>
+        <div class="sub">Ustaw dzienne cele klienta. Klient widzi je w apce jako pierścień kalorii i paski makro, a poniżej masz podgląd, jak realnie je realizuje.</div>
+
+        <div class="grid2">
+          <div class="field"><label>Kalorie (kcal)</label><input type="number" step="10" id="dtKcal" placeholder="np. 2000"></div>
+          <div class="field"><label>Białko (g)</label><input type="number" step="1" id="dtProtein" placeholder="np. 140"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Tłuszcze (g)</label><input type="number" step="1" id="dtFat" placeholder="np. 60"></div>
+          <div class="field"><label>Węglowodany (g)</label><input type="number" step="1" id="dtCarbs" placeholder="np. 220"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary" style="flex:1;" onclick="suggestMacros()">Podpowiedz makro</button>
+          <button class="btn" style="flex:1;" onclick="saveDietTargets()">Zapisz cele</button>
+        </div>
+        <div class="hint" id="dtHint"></div>
+
+        <div class="spacer"></div>
+        <h2 style="margin-top:10px;font-size:16px;">Ostatnie 7 dni</h2>
         <div id="dietSummaryBox"><div class="hint">Wczytywanie...</div></div>
       </div>
       <div class="card">
@@ -411,7 +429,7 @@ async function loadClient(){
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('name,email,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note').eq('id', id).single(),
+    sb.from('clients').select('name,email,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note,kcal_target,protein_target_g,fat_target_g,carbs_target_g').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at').order('seq', { ascending: true }),
   ]);
@@ -436,6 +454,7 @@ async function loadClient(){
   renderFlags(meas || [], sets || []);
   renderTrainerClientBanner();
   renderTrainerPRs();
+  loadDietTargetsIntoEditor(client);
   loadDietSummary(id);
   renderWeeklyReportCard();
 }
@@ -476,25 +495,145 @@ function exportClientCsv(){
   setTimeout(() => downloadCsv(safeName + '_pomiary.csv', measHeader, measRows), 300);
 }
 
-// Podsumowanie dziennego checkinu żywieniowego (białko) z ostatnich 7 dni.
+// ---------- DIETA: CELE KLIENTA I REALIZACJA (ostatnie 7 dni) ----------
+// Zastępuje dawny checkin "białko tak/nie" — teraz widzimy realne liczby z dziennika klienta.
+const DIET_MEAL_LABELS = { sniadanie: 'Śniadanie', obiad: 'Obiad', kolacja: 'Kolacja', przekaski: 'Przekąski' };
+let currentDietDays = {}; // data -> [wpisy], do rozwijania szczegółów dnia
+
+function dnum(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function dround(v){ return Math.round(dnum(v)); }
+function dround1(v){ return Math.round(dnum(v) * 10) / 10; }
+
+function loadDietTargetsIntoEditor(client){
+  if (!client) return;
+  document.getElementById('dtKcal').value = client.kcal_target ?? '';
+  document.getElementById('dtProtein').value = client.protein_target_g ?? '';
+  document.getElementById('dtFat').value = client.fat_target_g ?? '';
+  document.getElementById('dtCarbs').value = client.carbs_target_g ?? '';
+}
+
+// Podpowiedź makro z podanych kalorii — standardowy, bezpieczny rozkład dla osoby
+// trenującej siłowo: 2 g białka na kg masy ciała, ~25% kalorii z tłuszczu, reszta węgle.
+// To tylko punkt wyjścia — trener i tak może nadpisać każdą wartość ręcznie.
+function suggestMacros(){
+  const hint = document.getElementById('dtHint');
+  const kcal = dnum(document.getElementById('dtKcal').value);
+  if (kcal <= 0) { hint.textContent = 'Najpierw wpisz cel kaloryczny.'; return; }
+
+  const lastWeight = currentMeas.length ? dnum(currentMeas[currentMeas.length - 1].weight_kg) : 0;
+  // Bez pomiaru wagi nie zgadujemy masy ciała — bierzemy białko jako 30% kalorii.
+  const proteinG = lastWeight > 0 ? Math.round(lastWeight * 2) : Math.round((kcal * 0.30) / 4);
+  const fatG = Math.round((kcal * 0.25) / 9);
+  const carbsG = Math.max(0, Math.round((kcal - proteinG * 4 - fatG * 9) / 4));
+
+  document.getElementById('dtProtein').value = proteinG;
+  document.getElementById('dtFat').value = fatG;
+  document.getElementById('dtCarbs').value = carbsG;
+  hint.textContent = lastWeight > 0
+    ? 'Propozycja przy masie ' + lastWeight + ' kg (2 g białka/kg). Możesz poprawić i zapisać.'
+    : 'Propozycja z rozkładu 30/25/45 — brak pomiaru wagi, więc bez przeliczenia na kg. Możesz poprawić i zapisać.';
+}
+
+async function saveDietTargets(){
+  const id = currentClientId;
+  const hint = document.getElementById('dtHint');
+  if (!id) { hint.textContent = 'Wybierz klienta.'; return; }
+
+  const val = (elId) => {
+    const v = document.getElementById(elId).value;
+    return v === '' ? null : dnum(v);
+  };
+  const { error } = await sb.from('clients').update({
+    kcal_target: val('dtKcal'),
+    protein_target_g: val('dtProtein'),
+    fat_target_g: val('dtFat'),
+    carbs_target_g: val('dtCarbs'),
+  }).eq('id', id);
+  if (error) { hint.textContent = 'Błąd zapisu: ' + error.message; return; }
+  hint.textContent = '✅ Cele zapisane — klient widzi je już w swojej apce.';
+}
+
 async function loadDietSummary(clientId){
   const box = document.getElementById('dietSummaryBox');
   if (!box) return;
   box.innerHTML = '<div class="hint">Wczytywanie...</div>';
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { data, error } = await sb.from('daily_checkins').select('*')
-    .eq('client_id', clientId).gte('checkin_date', since).order('checkin_date', { ascending: false });
-  if (error) { box.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
-  if (!data || !data.length) { box.innerHTML = '<div class="hint">Klient nie zapisał jeszcze checkinów z ostatnich 7 dni.</div>'; return; }
 
-  const okCount = data.filter(c => c.protein_ok).length;
-  const rows = data.map(c => `
-    <div class="flag-item" style="border-left-color:${c.protein_ok ? 'var(--good)' : 'var(--bad)'};">
-      <strong>${c.checkin_date}</strong> — ${c.protein_ok ? '✅ Białko OK' : '❌ Za mało białka'}
-      ${c.note ? '<div class="hint">' + escapeHtml(c.note) + '</div>' : ''}
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [{ data: items, error }, { data: client }] = await Promise.all([
+    sb.from('diet_log_items').select('*').eq('client_id', clientId).gte('logged_at', since).order('logged_at', { ascending: false }),
+    sb.from('clients').select('kcal_target,protein_target_g').eq('id', clientId).single(),
+  ]);
+  if (error) { box.innerHTML = '<div class="hint">Błąd wczytywania: ' + error.message + '</div>'; return; }
+  if (!items || !items.length) {
+    box.innerHTML = '<div class="hint">Klient nie zapisał jeszcze nic w dzienniku żywieniowym z ostatnich 7 dni.</div>';
+    return;
+  }
+
+  const kcalTarget = client ? dnum(client.kcal_target) : 0;
+  const proteinTarget = client ? dnum(client.protein_target_g) : 0;
+
+  currentDietDays = {};
+  items.forEach(i => { (currentDietDays[i.logged_at] = currentDietDays[i.logged_at] || []).push(i); });
+  const dates = Object.keys(currentDietDays).sort().reverse();
+
+  const dayTotals = dates.map(d => {
+    const t = currentDietDays[d].reduce((acc, i) => ({
+      kcal: acc.kcal + dnum(i.kcal), protein: acc.protein + dnum(i.protein_g),
+      fat: acc.fat + dnum(i.fat_g), carbs: acc.carbs + dnum(i.carbs_g),
+    }), { kcal: 0, protein: 0, fat: 0, carbs: 0 });
+    return { date: d, ...t };
+  });
+
+  const avgKcal = dround(dayTotals.reduce((s, d) => s + d.kcal, 0) / dayTotals.length);
+  const avgProtein = dround(dayTotals.reduce((s, d) => s + d.protein, 0) / dayTotals.length);
+
+  const summary = `
+    <div class="stat-row weekly-stat-row" style="margin-bottom:12px;">
+      <div class="stat"><div class="num">${avgKcal}</div><div class="lbl">Śr. kcal / dzień</div></div>
+      <div class="stat"><div class="num">${avgProtein} g</div><div class="lbl">Śr. białko / dzień</div></div>
+      <div class="stat"><div class="num">${dayTotals.length}/7</div><div class="lbl">Dni z wpisami</div></div>
     </div>
-  `).join('');
-  box.innerHTML = `<div class="sub" style="margin-bottom:8px;">${okCount}/${data.length} dni z wystarczającą ilością białka.</div>` + rows;
+    ${kcalTarget > 0 ? `<div class="sub" style="margin-bottom:10px;">Cel: ${dround(kcalTarget)} kcal${proteinTarget > 0 ? ' · ' + dround(proteinTarget) + ' g białka' : ''} — średnia realizacja kalorii: <b>${Math.round((avgKcal / kcalTarget) * 100)}%</b>.</div>` : '<div class="sub" style="margin-bottom:10px;">Nie ustawiłeś jeszcze celów — ustaw je wyżej, żeby widzieć procent realizacji.</div>'}
+  `;
+
+  const rows = dayTotals.map((d, idx) => {
+    const pct = kcalTarget > 0 ? Math.round((d.kcal / kcalTarget) * 100) : null;
+    const color = pct === null ? 'var(--text-muted)' : (pct > 110 || pct < 70 ? 'var(--bad)' : 'var(--good)');
+    return `
+      <div class="diet-day-row" onclick="toggleDietDay(${idx})">
+        <div class="ddr-head">
+          <span class="ddr-date">${d.date}</span>
+          <span class="ddr-kcal" style="color:${color};">${dround(d.kcal)} kcal${pct !== null ? ' · ' + pct + '%' : ''}</span>
+        </div>
+        <div class="hint">B ${dround1(d.protein)} g · T ${dround1(d.fat)} g · W ${dround1(d.carbs)} g</div>
+        <div class="diet-day-detail" id="dietDay-${idx}" style="display:none;">${renderDietDayDetail(d.date)}</div>
+      </div>`;
+  }).join('');
+
+  box.innerHTML = summary + rows;
+}
+
+function renderDietDayDetail(date){
+  const items = currentDietDays[date] || [];
+  const byMeal = {};
+  items.forEach(i => { (byMeal[i.meal_type] = byMeal[i.meal_type] || []).push(i); });
+  return Object.keys(DIET_MEAL_LABELS)
+    .filter(k => byMeal[k] && byMeal[k].length)
+    .map(k => `
+      <div class="ddd-meal">
+        <b>${DIET_MEAL_LABELS[k]}</b>
+        ${byMeal[k].map(i => `
+          <div class="ddd-item">
+            <span>${escapeHtml(i.product_name)} — ${dround(i.grams)} g</span>
+            <span>${dround(i.kcal)} kcal</span>
+          </div>`).join('')}
+      </div>`).join('') || '<div class="hint">Brak szczegółów.</div>';
+}
+
+function toggleDietDay(idx){
+  const el = document.getElementById('dietDay-' + idx);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 // Wizualny pasek postępu celu — ten sam sposób liczenia co w panelu klienta,
