@@ -118,6 +118,36 @@
         <h2>🍗 Dieta — cele i realizacja</h2>
         <div class="sub">Ustaw dzienne cele klienta. Klient widzi je w apce jako pierścień kalorii i paski makro, a poniżej masz podgląd, jak realnie je realizuje.</div>
 
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:#fafaf9;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Dane do wyliczenia zapotrzebowania</div>
+          <div class="hint" style="margin-bottom:10px;">Wiek i wzrost klient podał przy rejestracji. Płeć i aktywność uzupełniasz Ty — bez nich nie da się policzyć zapotrzebowania.</div>
+          <div class="grid2">
+            <div class="field"><label>Wiek (lat)</label><input type="number" step="1" id="pfAge"></div>
+            <div class="field"><label>Wzrost (cm)</label><input type="number" step="1" id="pfHeight"></div>
+          </div>
+          <div class="grid2">
+            <div class="field">
+              <label>Płeć</label>
+              <select id="pfSex">
+                <option value="">— wybierz —</option>
+                <option value="K">Kobieta</option>
+                <option value="M">Mężczyzna</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Aktywność</label>
+              <select id="pfActivity">
+                <option value="1.2">Siedząca, bez treningów</option>
+                <option value="1.375">Lekka — 1-3 treningi/tydz.</option>
+                <option value="1.55">Umiarkowana — 3-5 treningów</option>
+                <option value="1.725">Wysoka — 6-7 lub praca fizyczna</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn secondary" style="width:100%;" onclick="saveClientProfile()">Zapisz dane klienta</button>
+          <div class="hint" id="pfHint"></div>
+        </div>
+
         <div class="grid2">
           <div class="field"><label>Kalorie (kcal)</label><input type="number" step="10" id="dtKcal" placeholder="np. 2000"></div>
           <div class="field"><label>Białko (g)</label><input type="number" step="1" id="dtProtein" placeholder="np. 140"></div>
@@ -429,7 +459,7 @@ async function loadClient(){
   if (!id) { document.getElementById('dashContent').style.display = 'none'; return; }
 
   const [{ data: client, error: e0 }, { data: meas, error: e1 }, { data: sets, error: e2 }] = await Promise.all([
-    sb.from('clients').select('name,email,height_cm,avatar_url,goal_type,goal_target,goal_start_value,goal_note,kcal_target,protein_target_g,fat_target_g,carbs_target_g').eq('id', id).single(),
+    sb.from('clients').select('name,email,age,height_cm,sex,activity_level,avatar_url,goal_type,goal_target,goal_start_value,goal_note,kcal_target,protein_target_g,fat_target_g,carbs_target_g').eq('id', id).single(),
     sb.from('measurements').select('*').eq('client_id', id).order('measured_at'),
     sb.from('exercise_logs').select('*').eq('client_id', id).order('logged_at').order('seq', { ascending: true }),
   ]);
@@ -510,28 +540,81 @@ function loadDietTargetsIntoEditor(client){
   document.getElementById('dtProtein').value = client.protein_target_g ?? '';
   document.getElementById('dtFat').value = client.fat_target_g ?? '';
   document.getElementById('dtCarbs').value = client.carbs_target_g ?? '';
+
+  // Dane profilowe potrzebne do wyliczenia zapotrzebowania.
+  document.getElementById('pfAge').value = client.age ?? '';
+  document.getElementById('pfHeight').value = client.height_cm ?? '';
+  document.getElementById('pfSex').value = client.sex ?? '';
+  document.getElementById('pfActivity').value = client.activity_level ?? '1.375';
 }
 
-// Podpowiedź makro z podanych kalorii — standardowy, bezpieczny rozkład dla osoby
-// trenującej siłowo: 2 g białka na kg masy ciała, ~25% kalorii z tłuszczu, reszta węgle.
-// To tylko punkt wyjścia — trener i tak może nadpisać każdą wartość ręcznie.
+async function saveClientProfile(){
+  const id = currentClientId;
+  const hint = document.getElementById('pfHint');
+  if (!id) { hint.textContent = 'Wybierz klienta.'; return; }
+
+  const val = (elId) => {
+    const v = document.getElementById(elId).value;
+    return v === '' ? null : dnum(v);
+  };
+  const sex = document.getElementById('pfSex').value || null;
+
+  const { error } = await sb.from('clients').update({
+    age: val('pfAge'),
+    height_cm: val('pfHeight'),
+    sex,
+    activity_level: val('pfActivity'),
+  }).eq('id', id);
+  if (error) { hint.textContent = 'Błąd zapisu: ' + error.message; return; }
+
+  hint.textContent = '✅ Dane zapisane.';
+  loadClient(); // odświeżamy profil u góry, żeby wiek/płeć od razu były widoczne
+}
+
+// Zapotrzebowanie kaloryczne wzorem Mifflin-St Jeor — to standard używany przez dietetyków,
+// dokładniejszy niż starsze Harris-Benedict.
+//   BMR (kobieta)   = 10*waga + 6.25*wzrost - 5*wiek - 161
+//   BMR (mężczyzna) = 10*waga + 6.25*wzrost - 5*wiek + 5
+// BMR to spoczynkowa przemiana materii — mnożymy ją przez współczynnik aktywności (PAL),
+// żeby dostać realne dzienne zapotrzebowanie.
+//
+// Makro liczymy potem tak, jak zwykle ustawia się je przy treningu siłowym:
+// 2 g białka na kg masy ciała, 25% kalorii z tłuszczu, reszta węglowodany.
+// Wszystko jest tylko propozycją — trener może nadpisać każdą wartość przed zapisem.
 function suggestMacros(){
   const hint = document.getElementById('dtHint');
-  const kcal = dnum(document.getElementById('dtKcal').value);
-  if (kcal <= 0) { hint.textContent = 'Najpierw wpisz cel kaloryczny.'; return; }
 
-  const lastWeight = currentMeas.length ? dnum(currentMeas[currentMeas.length - 1].weight_kg) : 0;
-  // Bez pomiaru wagi nie zgadujemy masy ciała — bierzemy białko jako 30% kalorii.
-  const proteinG = lastWeight > 0 ? Math.round(lastWeight * 2) : Math.round((kcal * 0.30) / 4);
+  const weight = currentMeas.length ? dnum(currentMeas[currentMeas.length - 1].weight_kg) : 0;
+  const age = dnum(document.getElementById('pfAge').value);
+  const height = dnum(document.getElementById('pfHeight').value);
+  const sex = document.getElementById('pfSex').value;
+  const pal = dnum(document.getElementById('pfActivity').value) || 1.375;
+
+  // Mówimy wprost, czego brakuje, zamiast po cichu policzyć byle co.
+  const missing = [];
+  if (weight <= 0) missing.push('pomiaru wagi klienta');
+  if (age <= 0) missing.push('wieku');
+  if (height <= 0) missing.push('wzrostu');
+  if (!sex) missing.push('płci');
+  if (missing.length) {
+    hint.textContent = 'Brakuje: ' + missing.join(', ') + '. Uzupełnij dane wyżej i zapisz.';
+    return;
+  }
+
+  const bmr = 10 * weight + 6.25 * height - 5 * age + (sex === 'M' ? 5 : -161);
+  const kcal = Math.round((bmr * pal) / 10) * 10; // zaokrąglamy do pełnych 10 kcal
+
+  const proteinG = Math.round(weight * 2);
   const fatG = Math.round((kcal * 0.25) / 9);
   const carbsG = Math.max(0, Math.round((kcal - proteinG * 4 - fatG * 9) / 4));
 
+  document.getElementById('dtKcal').value = kcal;
   document.getElementById('dtProtein').value = proteinG;
   document.getElementById('dtFat').value = fatG;
   document.getElementById('dtCarbs').value = carbsG;
-  hint.textContent = lastWeight > 0
-    ? 'Propozycja przy masie ' + lastWeight + ' kg (2 g białka/kg). Możesz poprawić i zapisać.'
-    : 'Propozycja z rozkładu 30/25/45 — brak pomiaru wagi, więc bez przeliczenia na kg. Możesz poprawić i zapisać.';
+
+  hint.textContent = 'BMR ' + Math.round(bmr) + ' kcal × aktywność ' + pal + ' = ' + kcal
+    + ' kcal na utrzymanie wagi (przy ' + weight + ' kg). Na redukcję odejmij 300-500, na masę dodaj 200-300.';
 }
 
 async function saveDietTargets(){
@@ -1100,9 +1183,17 @@ function renderProfile(client, meas){
 
   const weight = meas.length ? meas[meas.length-1].weight_kg : null;
   const height = client ? client.height_cm : null;
+  const age = client ? client.age : null;
+  const sex = client ? client.sex : null;
   const parts = [];
   if (weight) parts.push(`<div class="pstat">Waga: <b>${weight} kg</b></div>`);
   if (height) parts.push(`<div class="pstat">Wzrost: <b>${height} cm</b></div>`);
+  // Wiek i płeć są potrzebne do policzenia zapotrzebowania kalorycznego, więc gdy ich brakuje
+  // pokazujemy to wprost jako brak do uzupełnienia, zamiast po cichu pomijać.
+  parts.push(age
+    ? `<div class="pstat">Wiek: <b>${age} lat</b></div>`
+    : `<div class="pstat" style="color:var(--bad);">Wiek: <b>brak</b></div>`);
+  if (sex) parts.push(`<div class="pstat">Płeć: <b>${sex === 'K' ? 'kobieta' : 'mężczyzna'}</b></div>`);
   document.getElementById('clientProfileStats').innerHTML = parts.join('') || '<div class="hint">Brak jeszcze danych.</div>';
 }
 
