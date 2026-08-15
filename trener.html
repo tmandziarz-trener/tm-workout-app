@@ -149,13 +149,14 @@
         </div>
 
         <div class="grid2">
-          <div class="field"><label>Kalorie (kcal)</label><input type="number" step="10" id="dtKcal" placeholder="np. 2000"></div>
-          <div class="field"><label>Białko (g)</label><input type="number" step="1" id="dtProtein" placeholder="np. 140"></div>
+          <div class="field"><label>Kalorie (kcal)</label><input type="number" step="10" id="dtKcal" placeholder="np. 2000" oninput="onKcalChanged()"></div>
+          <div class="field"><label>Białko (g)</label><input type="number" step="1" id="dtProtein" placeholder="np. 140" oninput="onMacroChanged()"></div>
         </div>
         <div class="grid2">
-          <div class="field"><label>Tłuszcze (g)</label><input type="number" step="1" id="dtFat" placeholder="np. 60"></div>
-          <div class="field"><label>Węglowodany (g)</label><input type="number" step="1" id="dtCarbs" placeholder="np. 220"></div>
+          <div class="field"><label>Tłuszcze (g)</label><input type="number" step="1" id="dtFat" placeholder="np. 60" oninput="onMacroChanged()"></div>
+          <div class="field"><label>Węglowodany (g)</label><input type="number" step="1" id="dtCarbs" placeholder="np. 220" oninput="renderMacroSplit()"></div>
         </div>
+        <div id="macroSplit" class="hint" style="margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;">
           <button class="btn secondary" style="flex:1;" onclick="suggestMacros()">Podpowiedz makro</button>
           <button class="btn" style="flex:1;" onclick="saveDietTargets()">Zapisz cele</button>
@@ -546,6 +547,69 @@ function loadDietTargetsIntoEditor(client){
   document.getElementById('pfHeight').value = client.height_cm ?? '';
   document.getElementById('pfSex').value = client.sex ?? '';
   document.getElementById('pfActivity').value = client.activity_level ?? '1.375';
+
+  renderMacroSplit(); // od razu pokazujemy, czy zapisane cele się spinają
+}
+
+// ---------- ŻYWE PRZELICZANIE MAKRO ----------
+// Kalorie i makro muszą się zgadzać, więc pola rozmawiają ze sobą:
+//   - zmieniasz kalorie (np. +300 na masę) -> tłuszcz skaluje się do 25% nowych kalorii,
+//     białko zostaje (zależy od masy ciała, nie od kalorii), węgle domykają bilans,
+//   - zmieniasz białko albo tłuszcz -> węgle domykają bilans,
+//   - węgle zmieniasz ręcznie na końcu, jeśli chcesz coś dopiąć po swojemu.
+// Dzięki temu nie da się zapisać celu, w którym makro nie sumuje się do kalorii.
+function onKcalChanged(){
+  const kcal = dnum(document.getElementById('dtKcal').value);
+  if (kcal <= 0) { renderMacroSplit(); return; }
+  // Tłuszcz trzymamy na 25% kalorii — to bezpieczny punkt wyjścia przy każdym poziomie kcal.
+  document.getElementById('dtFat').value = Math.round((kcal * 0.25) / 9);
+  balanceCarbs();
+}
+
+function onMacroChanged(){
+  balanceCarbs();
+}
+
+// Węgle są macro domykającym: to, co zostaje po odjęciu białka i tłuszczu od kalorii.
+function balanceCarbs(){
+  const kcal = dnum(document.getElementById('dtKcal').value);
+  const protein = dnum(document.getElementById('dtProtein').value);
+  const fat = dnum(document.getElementById('dtFat').value);
+  if (kcal <= 0) { renderMacroSplit(); return; }
+  const carbs = Math.round((kcal - protein * 4 - fat * 9) / 4);
+  document.getElementById('dtCarbs').value = Math.max(0, carbs);
+  renderMacroSplit(carbs < 0);
+}
+
+// Podgląd na bieżąco: ile kcal realnie dają wpisane makro i jaki to rozkład procentowy.
+// Trener od razu widzi, czy plan się spina, zamiast dowiadywać się o tym po zapisie.
+function renderMacroSplit(carbsWentNegative){
+  const box = document.getElementById('macroSplit');
+  if (!box) return;
+  const kcal = dnum(document.getElementById('dtKcal').value);
+  const protein = dnum(document.getElementById('dtProtein').value);
+  const fat = dnum(document.getElementById('dtFat').value);
+  const carbs = dnum(document.getElementById('dtCarbs').value);
+
+  if (kcal <= 0 && protein <= 0 && fat <= 0 && carbs <= 0) { box.textContent = ''; return; }
+
+  const fromMacros = protein * 4 + fat * 9 + carbs * 4;
+  const pct = (g, perG) => fromMacros > 0 ? Math.round((g * perG / fromMacros) * 100) : 0;
+  const diff = Math.round(fromMacros - kcal);
+
+  if (carbsWentNegative) {
+    box.innerHTML = '<span style="color:var(--bad);">⚠️ Samo białko i tłuszcz przekraczają cel kaloryczny — węgle ustawiłem na 0. '
+      + 'Zmniejsz białko albo tłuszcz, albo podnieś kalorie.</span>';
+    return;
+  }
+
+  // Do 4 kcal różnicy to zwykłe zaokrąglenie gramów, nie błąd.
+  const zgodne = Math.abs(diff) <= 4;
+  box.innerHTML = 'Makro dają <b>' + Math.round(fromMacros) + ' kcal</b> · '
+    + 'B ' + pct(protein, 4) + '% / T ' + pct(fat, 9) + '% / W ' + pct(carbs, 4) + '%'
+    + (zgodne
+        ? ' <span style="color:var(--good);">✓ zgodne z celem</span>'
+        : ' <span style="color:var(--bad);">— rozjazd ' + (diff > 0 ? '+' : '') + diff + ' kcal wzgl. celu</span>');
 }
 
 async function saveClientProfile(){
@@ -613,8 +677,10 @@ function suggestMacros(){
   document.getElementById('dtFat').value = fatG;
   document.getElementById('dtCarbs').value = carbsG;
 
+  renderMacroSplit();
   hint.textContent = 'BMR ' + Math.round(bmr) + ' kcal × aktywność ' + pal + ' = ' + kcal
-    + ' kcal na utrzymanie wagi (przy ' + weight + ' kg). Na redukcję odejmij 300-500, na masę dodaj 200-300.';
+    + ' kcal na utrzymanie wagi (przy ' + weight + ' kg). Na redukcję odejmij 300-500, na masę dodaj 200-300 '
+    + '— wpisz nowe kalorie w pole wyżej, makro przeliczy się samo.';
 }
 
 async function saveDietTargets(){
