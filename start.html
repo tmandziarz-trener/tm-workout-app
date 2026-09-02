@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bezpłatna konsultacja — Tomasz Mandziarz, trener odchudzania</title>
+<meta name="description" content="Zostaw kontakt i porozmawiajmy o Twoim celu. Bez głodówek i trenowania codziennie — prosty plan dopasowany do Twojego życia. 10 lat doświadczenia, metoda OTR.">
+<link rel="icon" href="favicon.png">
+<meta property="og:title" content="Bezpłatna konsultacja — Tomasz Mandziarz">
+<meta property="og:description" content="Prosty plan dopasowany do Twojego życia. Bez głodówek, bez trenowania codziennie.">
+<meta property="og:type" content="website">
+<style>
+:root{
+  --accent:#c5a689; --accent-dark:#a8875c; --dark:#141312; --ink:#1f1c19;
+  --bg:#faf8f5; --card:#ffffff; --border:#e8e1d8; --mute:#7d7469;
+  --ok:#4f7d55;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+img{max-width:100%;display:block}
+.wrap{max-width:620px;margin:0 auto;padding:0 18px}
+
+/* ---------- HERO ---------- */
+.hero{background:var(--dark);color:#fff;padding:26px 0 40px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;left:50%;bottom:-70px;width:420px;height:140px;transform:translateX(-50%);background:radial-gradient(ellipse at center,rgba(197,166,137,.18),transparent 70%)}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:30px}
+.brand img{height:38px;width:auto}
+.brand .bt{font-weight:800;font-size:15px;letter-spacing:.3px;line-height:1.1}
+.brand .bb{font-size:9.5px;letter-spacing:2.4px;color:var(--accent);font-weight:700}
+.eyebrow{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(197,166,137,.4);padding:5px 12px;border-radius:30px;margin-bottom:16px}
+h1{font-size:clamp(28px,7.4vw,40px);line-height:1.15;margin:0 0 14px;font-weight:800;letter-spacing:-.02em}
+h1 em{font-style:normal;color:var(--accent)}
+.lede{font-size:17px;color:#cfc7bd;margin:0 0 26px;max-width:30em}
+.cta{display:block;width:100%;text-align:center;background:var(--accent);color:#191614;text-decoration:none;font-weight:800;font-size:17px;padding:16px 22px;border-radius:11px;border:none;cursor:pointer;letter-spacing:.2px;transition:transform .12s,background .12s;font-family:inherit}
+.cta:hover{background:#d3b697}
+.cta:active{transform:translateY(1px)}
+.cta-note{font-size:12.5px;color:#9d948a;text-align:center;margin-top:11px}
+.hero-facts{display:flex;gap:8px;margin-top:30px;flex-wrap:wrap}
+.hero-facts div{flex:1 1 30%;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.09);border-radius:11px;padding:13px 12px;text-align:center}
+.hero-facts b{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--accent)}
+.hero-facts span{font-size:11.5px;color:#a89f95;line-height:1.35;display:block;margin-top:2px}
+
+/* ---------- SEKCJE ---------- */
+section{padding:44px 0}
+section.alt{background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+h2{font-size:clamp(22px,5.4vw,28px);line-height:1.22;margin:0 0 12px;font-weight:800;letter-spacing:-.015em}
+h2 em{font-style:normal;color:var(--accent-dark)}
+.kicker{font-size:11.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--accent-dark);margin:0 0 8px}
+p{margin:0 0 15px}
+.mute{color:var(--mute)}
+
+/* ból */
+ul.pain{list-style:none;padding:0;margin:18px 0 0}
+ul.pain li{position:relative;padding:11px 0 11px 32px;border-bottom:1px solid var(--border);font-size:15.5px}
+ul.pain li:last-child{border-bottom:0}
+ul.pain li::before{content:"";position:absolute;left:6px;top:19px;width:9px;height:2px;background:var(--accent);border-radius:2px}
+
+/* OTR */
+.otr{display:grid;gap:12px;margin-top:20px}
+.otr article{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:17px 18px;display:flex;gap:15px;align-items:flex-start}
+section.alt .otr article{background:var(--bg)}
+.otr .let{flex:0 0 40px;height:40px;border-radius:11px;background:var(--dark);color:var(--accent);font-weight:800;font-size:19px;display:flex;align-items:center;justify-content:center}
+.otr h3{margin:0 0 3px;font-size:16.5px;font-weight:800}
+.otr p{margin:0;font-size:14.5px;color:var(--mute)}
+
+/* przemiany */
+.tr{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:14px}
+.tr img{width:100%;background:#000}
+.tr .meta{padding:15px 17px 17px}
+.tr .who{font-weight:800;font-size:16.5px;margin:0 0 2px}
+.tr .ctx{font-size:13px;color:var(--mute);margin:0 0 9px}
+.tr .res{display:flex;gap:7px;flex-wrap:wrap}
+.tr .res span{background:#f3ece3;color:var(--accent-dark);font-weight:800;font-size:13px;padding:4px 11px;border-radius:20px;white-space:nowrap}
+.tr .txt{font-size:14.5px;margin:11px 0 0;color:var(--ink)}
+.disclaimer{font-size:12.5px;color:var(--mute);margin-top:6px;font-style:italic}
+
+/* jak to wyglada */
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:20px 0 0}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 22px 46px;border-left:2px solid var(--border);margin-left:15px}
+ol.steps li:last-child{border-left-color:transparent;padding-bottom:0}
+ol.steps li::before{content:counter(s);position:absolute;left:-16px;top:-2px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#1a1614;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
+ol.steps b{display:block;font-size:16px;margin-bottom:2px}
+ol.steps span{font-size:14.5px;color:var(--mute)}
+
+/* formularz */
+#formularz{background:var(--dark);color:#fff;padding:46px 0 52px}
+#formularz h2{color:#fff}
+#formularz .kicker{color:var(--accent)}
+#formularz .lede{margin-bottom:24px}
+form{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:15px;padding:20px 18px}
+label{display:block;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#a49a8f;margin-bottom:6px}
+.f{margin-bottom:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+input,select,textarea{width:100%;padding:13px 13px;border:1px solid rgba(255,255,255,.16);border-radius:9px;font-size:16px;background:rgba(255,255,255,.07);color:#fff;font-family:inherit;line-height:1.4}
+textarea{resize:vertical;min-height:78px}
+input::placeholder,textarea::placeholder{color:#8a8177}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);background:rgba(255,255,255,.1)}
+select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%23a49a8f' stroke-width='2' fill='none' stroke-linecap='round'/></svg>");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+select option{background:#26221e;color:#fff}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.privacy{font-size:12px;color:#8a8177;margin:13px 0 0;text-align:center;line-height:1.5}
+.msg{margin-top:14px;padding:12px 14px;border-radius:9px;font-size:14px;display:none}
+.msg.bad{display:block;background:rgba(179,64,44,.16);border:1px solid rgba(179,64,44,.4);color:#f0b4a8}
+.done{display:none;text-align:center;padding:30px 18px}
+.done .tick{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#1a1614;font-size:29px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.done h3{font-size:22px;margin:0 0 8px;font-weight:800}
+.done p{color:#bdb4a9;margin:0 auto;max-width:26em}
+
+/* faq */
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 17px;margin-bottom:10px}
+details[open]{border-color:var(--accent)}
+summary{font-weight:700;font-size:15.5px;cursor:pointer;list-style:none;position:relative;padding-right:26px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";position:absolute;right:0;top:-2px;font-size:21px;color:var(--accent-dark);font-weight:400;line-height:1}
+details[open] summary::after{content:"–"}
+details p{margin:11px 0 0;font-size:14.5px;color:var(--mute)}
+
+footer{background:var(--dark);color:#7d746a;text-align:center;padding:26px 18px 34px;font-size:12.5px;border-top:1px solid rgba(255,255,255,.07)}
+footer a{color:var(--accent);text-decoration:none}
+footer img{height:30px;margin:0 auto 13px;opacity:.85}
+
+.sticky{position:fixed;left:0;right:0;bottom:0;padding:11px 18px calc(11px + env(safe-area-inset-bottom));background:rgba(20,19,18,.94);backdrop-filter:blur(9px);border-top:1px solid rgba(255,255,255,.1);transform:translateY(110%);transition:transform .25s;z-index:50}
+.sticky.on{transform:none}
+.sticky .cta{max-width:584px;margin:0 auto;font-size:16px;padding:14px}
+@media(min-width:560px){.hero-facts div{flex:1}}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <img src="logo.png" alt="">
+      <div><div class="bt">TOMASZ MANDZIARZ</div><div class="bb">WORKOUT</div></div>
+    </div>
+
+    <span class="eyebrow">Bezpłatna konsultacja</span>
+    <h1>Jesz zdrowo, ćwiczysz — <em>a waga stoi</em>?</h1>
+    <p class="lede">To zwykle nie metabolizm i nie brak silnej woli. To plan zrobiony dla kogoś innego niż Ty. Porozmawiajmy 20 minut o Twoim celu — bez zobowiązań i bez sprzedaży na siłę.</p>
+    <a class="cta" href="#formularz">Umów bezpłatną konsultację</a>
+    <p class="cta-note">Odpisuję zwykle tego samego dnia</p>
+
+    <div class="hero-facts">
+      <div><b>10 lat</b><span>doświadczenia</span></div>
+      <div><b>-30 kg</b><span>najlepszy wynik podopiecznej</span></div>
+      <div><b>2–3×</b><span>treningi w tygodniu</span></div>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Brzmi znajomo?</p>
+    <h2>Znam ten moment, bo słyszę go na każdej pierwszej rozmowie</h2>
+    <ul class="pain">
+      <li>Próbowałaś już keto, liczenia kalorii i treningów codziennie — i żadnego nie wytrzymałaś dłużej niż dwa tygodnie.</li>
+      <li>Od poniedziałku do piątku trzymasz się planu, a weekend kasuje cały tydzień.</li>
+      <li>Wieczorem dopada Cię głód, którego nie umiesz opanować — i wtedy sięgasz po coś, czego nie planowałaś.</li>
+      <li>Nie masz siłowni pod domem, sprzętu ani dwóch wolnych godzin dziennie — i zakładasz, że to Cię skreśla.</li>
+      <li>Zaczynasz „od poniedziałku”. Już który raz.</li>
+    </ul>
+    <p style="margin-top:20px"><strong>Żaden z tych punktów nie jest o Tobie.</strong> Każdy z nich jest o planie, który nie pasował do Twojego życia.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <p class="kicker">Jak pracuję</p>
+    <h2>Metoda <em>OTR</em> — trzy rzeczy, nic więcej</h2>
+    <p class="mute">Nie wierzę w detoksy, spalacze ani cudowne herbatki. Wierzę w podstawy robione konsekwentnie — i to one dowożą wyniki, które widzisz niżej.</p>
+    <div class="otr">
+      <article><div class="let">O</div><div><h3>Odżywianie</h3><p>Prosty plan dopasowany do Twojego życia. Bez głodówek i bez listy zakazanych produktów.</p></div></article>
+      <article><div class="let">T</div><div><h3>Trening</h3><p>W domu, na siłowni czy na dworze — ze sprzętem albo bez. 2–3 razy w tygodniu wystarczy.</p></div></article>
+      <article><div class="let">R</div><div><h3>Regeneracja</h3><p>Sen i odpoczynek. Ciało zmienia się między treningami, nie w ich trakcie.</p></div></article>
+    </div>
+    <p style="margin-top:18px" class="mute">Do tego cotygodniowe raporty i rozmowy — sprawdzamy, co działa, i korygujemy kurs. Nie działamy na ślepo.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Efekty podopiecznych</p>
+    <h2>Różne życia, różne warunki, ta sama zasada</h2>
+    <p class="mute">Każda z tych osób zaczynała od zera i miała inny punkt startowy. Łączy je jedno: prosty plan i konsekwencja.</p>
+
+    <div class="tr" style="margin-top:22px">
+      <img src="przemiany/1.jpg" alt="Marek — przemiana przed i po" loading="lazy">
+      <div class="meta">
+        <p class="who">Marek</p>
+        <p class="ctx">Trening w domu, mało sprzętu</p>
+        <div class="res"><span>-13 kg</span><span>-13 cm w talii</span></div>
+        <p class="txt">Bez siłowni i bez kombinowania. Fundamentem była prosta dieta, regularność i trzymanie się planu.</p>
+      </div>
+    </div>
+
+    <div class="tr">
+      <img src="przemiany/4.jpg" alt="Marzena — przemiana przed i po" loading="lazy">
+      <div class="meta">
+        <p class="who">Marzena</p>
+        <p class="ctx">Problemy z kręgosłupem, praca w aucie</p>
+        <div class="res"><span>-30 kg</span><span>-28 cm w talii</span></div>
+        <p class="txt">Startowała z bólem, nadwagą i pracą, w której większość dnia spędza za kierownicą. Trening 2 razy w tygodniu i plan dopasowany do życia, a nie życie dopasowane do diety.</p>
+      </div>
+    </div>
+
+    <div class="tr">
+      <img src="przemiany/2.jpg" alt="Kazimierz — przemiana przed i po" loading="lazy">
+      <div class="meta">
+        <p class="who">Kazimierz</p>
+        <p class="ctx">Fotograf, dużo siedzenia, siłownia 2× w tygodniu</p>
+        <div class="res"><span>-12,3 kg</span><span>-13 cm w talii</span></div>
+        <p class="txt">Bez głodówek, bez trenowania codziennie, bez życia podporządkowanego diecie.</p>
+      </div>
+    </div>
+
+    <div class="tr">
+      <img src="przemiany/5.jpg" alt="Piotr — przemiana przed i po" loading="lazy">
+      <div class="meta">
+        <p class="who">Piotr</p>
+        <p class="ctx">Trening w domu z gumami oporowymi</p>
+        <div class="res"><span>-11,2 kg</span><span>-10 cm w talii</span></div>
+        <p class="txt">Największą robotę zrobiły podstawy: wyeliminowanie błędów żywieniowych i regularność.</p>
+      </div>
+    </div>
+
+    <div class="tr">
+      <img src="przemiany/3.jpg" alt="Daniel — przemiana przed i po" loading="lazy">
+      <div class="meta">
+        <p class="who">Daniel</p>
+        <p class="ctx">Trening w domu bez sprzętu, 3× w tygodniu</p>
+        <div class="res"><span>-9 kg</span><span>-9 cm w talii</span></div>
+        <p class="txt">Mata, własne ciało, prosty plan. Zero czekania na „lepszy moment”.</p>
+      </div>
+    </div>
+
+    <p class="disclaimer">Zdjęcia i wyniki publikowane za zgodą podopiecznych. Efekty są indywidualne i zależą od punktu startowego oraz konsekwencji.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <p class="kicker">Co się stanie po zapisie</p>
+    <h2>Cztery kroki, zero zobowiązań</h2>
+    <ol class="steps">
+      <li><b>Zostawiasz kontakt</b><span>Formularz zajmuje minutę. Nie potrzebuję Twojego numeru PESEL — tylko tego, co pozwoli mi się przygotować do rozmowy.</span></li>
+      <li><b>Odzywam się do Ciebie</b><span>Zwykle tego samego dnia. Umawiamy termin, który Ci pasuje.</span></li>
+      <li><b>Rozmawiamy ok. 20 minut</b><span>Pytam o Twój cel, tryb dnia, co już próbowałaś i na czym się to wykładało. Mówię wprost, co bym zmienił w pierwszej kolejności.</span></li>
+      <li><b>Decydujesz sama</b><span>Jeśli chcesz, żebym Cię poprowadził — mówię, jak to wygląda. Jeśli nie, zostajesz z konkretnymi wskazówkami i tyle. Bez nacisku.</span></li>
+    </ol>
+  </div>
+</section>
+
+<section id="formularz">
+  <div class="wrap">
+    <div id="formBox">
+      <p class="kicker">Ostatni krok</p>
+      <h2>Umów bezpłatną konsultację</h2>
+      <p class="lede">Im więcej mi napiszesz, tym konkretniejszą rozmowę odbędziemy. Ale wystarczy imię i kontakt.</p>
+
+      <form id="lead" novalidate>
+        <div class="f">
+          <label for="name">Imię *</label>
+          <input id="name" name="name" type="text" autocomplete="given-name" placeholder="Jak się do Ciebie zwracać?" required>
+        </div>
+
+        <div class="g2">
+          <div class="f">
+            <label for="phone">Telefon</label>
+            <input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="600 000 000">
+          </div>
+          <div class="f">
+            <label for="email">E-mail</label>
+            <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="twoj@email.pl">
+          </div>
+        </div>
+
+        <div class="f">
+          <label for="goal">Twój główny cel</label>
+          <select id="goal" name="goal">
+            <option value="schudnac">Chcę schudnąć</option>
+            <option value="forma">Chcę poprawić formę i sylwetkę</option>
+            <option value="zdrowie">Chcę poprawić zdrowie i samopoczucie</option>
+            <option value="inne">Coś innego</option>
+          </select>
+        </div>
+
+        <div class="g2">
+          <div class="f">
+            <label for="goal_kg">Ile kg chcesz zrzucić</label>
+            <input id="goal_kg" name="goal_kg" type="number" min="1" max="120" step="1" inputmode="numeric" placeholder="np. 12">
+          </div>
+          <div class="f">
+            <label for="training_days">Treningi w tygodniu</label>
+            <select id="training_days" name="training_days">
+              <option value="">— wybierz —</option>
+              <option value="1">1 raz</option>
+              <option value="2">2 razy</option>
+              <option value="3">3 razy</option>
+              <option value="4+">4 i więcej</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="f">
+          <label for="where_train">Gdzie realnie możesz trenować</label>
+          <select id="where_train" name="where_train">
+            <option value="nie_wiem">Jeszcze nie wiem</option>
+            <option value="dom">W domu</option>
+            <option value="silownia">Na siłowni</option>
+            <option value="dwor">Na dworze</option>
+          </select>
+        </div>
+
+        <div class="f">
+          <label for="note">Co już próbowałaś i na czym się wykładało?</label>
+          <textarea id="note" name="note" placeholder="Np. „liczyłam kalorie, ale odpuszczałam po dwóch tygodniach” — to mi najwięcej mówi."></textarea>
+        </div>
+
+        <div class="hp"><label for="website">Nie wypełniaj tego pola</label><input id="website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+
+        <button class="cta" type="submit" id="send">Wyślij zgłoszenie</button>
+        <div class="msg" id="msg"></div>
+        <p class="privacy">Kontakt wykorzystam wyłącznie po to, żeby się z Tobą skontaktować w sprawie konsultacji. Nie wysyłam spamu i nie przekazuję danych dalej.</p>
+      </form>
+    </div>
+
+    <div class="done" id="done">
+      <div class="tick">✓</div>
+      <h3>Zgłoszenie przyjęte</h3>
+      <p>Dzięki. Odezwę się zwykle jeszcze tego samego dnia — sprawdzaj telefon albo skrzynkę. Do usłyszenia!</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Zanim zapytasz</p>
+    <h2>Najczęstsze pytania</h2>
+    <details><summary>Czy konsultacja naprawdę jest bezpłatna?</summary><p>Tak. To rozmowa, w której poznaję Twoją sytuację i mówię, co bym zmienił w pierwszej kolejności. Nie płacisz za nią i nie musisz nic kupować.</p></details>
+    <details><summary>Nie mam siłowni ani sprzętu.</summary><p>Marek, Daniel i Piotr trenowali w domu — jeden bez żadnego sprzętu, drugi z gumami oporowymi. Zawsze da się ułożyć dobry trening z tego, co masz.</p></details>
+    <details><summary>Nie mam czasu na codzienne treningi.</summary><p>I dobrze, bo ich nie potrzebujesz. Przy odchudzaniu największą rolę gra dieta — 2–3 solidne treningi w tygodniu wystarczą.</p></details>
+    <details><summary>Będę musiała rezygnować z ulubionego jedzenia?</summary><p>Nie. Plan, którego nie da się utrzymać w urodziny albo na wyjściu ze znajomymi, i tak upadnie po dwóch tygodniach. Zaczynamy od jednej, maksymalnie dwóch zasad.</p></details>
+    <details><summary>Jak wygląda współpraca, jeśli się zdecyduję?</summary><p>Dostajesz plan treningowy i żywieniowy oraz dostęp do mojej aplikacji, w której zapisujesz treningi, posiłki i pomiary. Ja to widzę na bieżąco i co tydzień dostajesz ode mnie raport z podsumowaniem.</p></details>
+  </div>
+</section>
+
+<footer>
+  <img src="logo.png" alt="">
+  <div>Tomasz Mandziarz — trener odchudzania · 10 lat doświadczenia</div>
+  <div style="margin-top:7px"><a href="https://www.instagram.com/tomaszmandziarz/" target="_blank" rel="noopener">Instagram</a> · <a href="https://www.facebook.com/t.mandziarz" target="_blank" rel="noopener">Facebook</a> · <a href="index.html">Mam już konto w aplikacji</a></div>
+</footer>
+
+<div class="sticky" id="sticky"><a class="cta" href="#formularz">Umów bezpłatną konsultację</a></div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+
+  // Gdyby zdjęcia przemian jeszcze nie były wgrane na serwer — chowamy je,
+  // żeby zamiast strony z połamanymi obrazkami wyświetlił się sam opis.
+  Array.prototype.forEach.call(document.querySelectorAll('.tr img'), function(img){
+    img.addEventListener('error', function(){ img.style.display = 'none'; });
+    if (img.complete && img.naturalWidth === 0) img.style.display = 'none';
+  });
+
+  var form = document.getElementById('lead');
+  var msg  = document.getElementById('msg');
+  var btn  = document.getElementById('send');
+
+  // Sticky CTA pokazuje się dopiero, gdy hero zniknie z ekranu, i chowa przy formularzu.
+  var sticky = document.getElementById('sticky');
+  var form_s = document.getElementById('formularz');
+  function onScroll(){
+    var past = window.scrollY > 520;
+    var atForm = form_s.getBoundingClientRect().top < window.innerHeight - 60;
+    sticky.classList.toggle('on', past && !atForm);
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    msg.className = 'msg';
+    msg.textContent = '';
+
+    var name  = document.getElementById('name').value.trim();
+    var email = document.getElementById('email').value.trim();
+    var phone = document.getElementById('phone').value.trim();
+
+    if (name.length < 2){ return fail('Podaj imię.'); }
+    if (!email && !phone){ return fail('Zostaw e-mail albo telefon — inaczej nie mam jak się odezwać.'); }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ return fail('Ten e-mail wygląda na niepoprawny.'); }
+
+    btn.disabled = true;
+    btn.textContent = 'Wysyłam…';
+
+    var payload = {
+      name: name, email: email, phone: phone,
+      goal: document.getElementById('goal').value,
+      goal_kg: document.getElementById('goal_kg').value,
+      training_days: document.getElementById('training_days').value,
+      where_train: document.getElementById('where_train').value,
+      note: document.getElementById('note').value.trim(),
+      website: document.getElementById('website').value,
+      source: q.get('src') || q.get('utm_source') || 'ig-bio',
+      utm: location.search.slice(0, 500)
+    };
+
+    try{
+      var r = await fetch('/api/lead', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      var j = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !j.ok) throw new Error(j.error || 'Coś poszło nie tak. Spróbuj jeszcze raz albo napisz do mnie na Instagramie.');
+
+      document.getElementById('formBox').style.display = 'none';
+      document.getElementById('done').style.display = 'block';
+      sticky.classList.remove('on');
+      document.getElementById('formularz').scrollIntoView({behavior:'smooth', block:'center'});
+    }catch(err){
+      fail(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Wyślij zgłoszenie';
+    }
+  });
+
+  function fail(t){
+    msg.className = 'msg bad';
+    msg.textContent = t;
+    msg.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+})();
+</script>
+</body>
+</html>
